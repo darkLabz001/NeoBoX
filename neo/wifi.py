@@ -46,13 +46,20 @@ def scan(rescan: str = "auto") -> list[dict]:
     return nets
 
 
-def connect(ssid: str, password: str | None = None, timeout: int = 40):
+def connect(ssid: str, password: str | None = None, timeout: int = 45):
+    # Delete any stale saved profile for this SSID first — otherwise nmcli reuses
+    # an old (possibly wrong-password) profile and fails even with a correct pw.
+    try:
+        subprocess.run(["nmcli", "connection", "delete", "id", ssid],
+                       capture_output=True, text=True, timeout=10)
+    except Exception:
+        pass
     args = ["device", "wifi", "connect", ssid]
     if password:
         args += ["password", password]
     try:
         r = _run(args, timeout=timeout)
-        lines = (r.stdout + r.stderr).strip().splitlines()
+        lines = [ln for ln in (r.stdout + r.stderr).strip().splitlines() if ln.strip()]
         msg = lines[-1] if lines else ("Connected" if r.returncode == 0 else "Failed")
         return r.returncode == 0, msg
     except subprocess.TimeoutExpired:
