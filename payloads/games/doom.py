@@ -17,7 +17,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 BRIDGE = REPO / "neo" / "keybridge.py"
-GAME_VOL = "0.75"     # Doom's dense mix clips at the UI's boosted level; drop it
+GAME_VOL = "1.0"      # music off -> SFX stay clean near full level
 UI_VOL = "1.3"        # restore on exit
 
 engine = next((e for e in ("/usr/games/chocolate-doom", "/usr/games/crispy-doom")
@@ -62,7 +62,8 @@ setvol(sink, GAME_VOL)
 bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "doom"])
 time.sleep(0.6)
 try:
-    subprocess.run([engine, "-iwad", wad, "-fullscreen"])
+    # -nomusic: the OPL music synth crackles/underruns on a Pi 3B+; SFX stay clean.
+    subprocess.run([engine, "-iwad", wad, "-fullscreen", "-nomusic"])
 finally:
     try:
         bridge.send_signal(signal.SIGTERM)
