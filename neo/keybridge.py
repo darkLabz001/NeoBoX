@@ -39,6 +39,14 @@ PROFILES = {
         "L": e.KEY_Q, "R": e.KEY_W,
         "START": e.KEY_ENTER, "SELECT": e.KEY_RIGHTSHIFT,
     },
+    "mpv": {
+        "UP": e.KEY_VOLUMEUP, "DOWN": e.KEY_VOLUMEDOWN,
+        "LEFT": e.KEY_LEFT, "RIGHT": e.KEY_RIGHT,
+        "A": e.KEY_SPACE, "B": e.KEY_Q,
+        "X": e.KEY_M, "Y": e.KEY_I,
+        "L": e.KEY_9, "R": e.KEY_0,
+        "START": e.KEY_P, "SELECT": e.KEY_O,
+    },
 }
 PROFILES["ps1"] = PROFILES["retroarch"]   # PS1 runs in RetroArch (pcsx-rearmed)
 
@@ -122,7 +130,7 @@ def main():
             panic_hold += 1
             if panic_hold > 40:   # ~0.3s held
                 log("PANIC combo -> killing game")
-                os.system("pkill -9 -f 'retroarch|chocolate-doom|mednafen|pcsx'")
+                os.system("pkill -9 -f 'retroarch|chocolate-doom|mednafen|pcsx|mpv'")
                 break
         else:
             panic_hold = 0
