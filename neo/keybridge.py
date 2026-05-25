@@ -32,6 +32,14 @@ PROFILES = {
         "L": e.KEY_Q, "R": e.KEY_W,
         "START": e.KEY_ENTER, "SELECT": e.KEY_RSHIFT,
     },
+    "ps1": {
+        "UP": e.KEY_UP, "DOWN": e.KEY_DOWN,
+        "LEFT": e.KEY_LEFT, "RIGHT": e.KEY_RIGHT,
+        "A": e.KEY_S, "B": e.KEY_D, "X": e.KEY_A, "Y": e.KEY_W,
+        "L": e.KEY_Q, "R": e.KEY_E,
+        "START": e.KEY_ENTER, "SELECT": e.KEY_TAB,
+        "EXIT": e.KEY_ESC,
+    },
 }
 
 def main():
