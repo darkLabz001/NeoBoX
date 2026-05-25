@@ -117,6 +117,9 @@ class App:
         elif action == "volume":
             from .screens.volume import VolumeScreen
             self.push(VolumeScreen(self))
+        elif action == "wifi":
+            from .screens.wifi import WifiScreen
+            self.push(WifiScreen(self))
 
     def run_ota(self):
         import shlex
