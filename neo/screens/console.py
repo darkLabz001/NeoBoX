@@ -15,12 +15,17 @@ _SPIN = "|/-\\"
 
 
 class ConsoleScreen(Screen):
-    def __init__(self, app, tool: dict, params: dict | None = None, complete_action=None):
+    def __init__(self, app, tool: dict, params: dict | None = None, complete_action=None,
+                 exclusive: bool = False):
         super().__init__(app)
         self.tool = tool
         self.title = tool["name"]
         # complete_action: optional (label, callable) shown on A when finished
         self.complete_action = complete_action
+        # exclusive: release GPIO while this runs (so a game's key bridge can use it)
+        self.exclusive = exclusive
+        if exclusive:
+            app.pause_gpio()
         self.cmd = util.fill(tool.get("cmd", ""), params or {})
         self.lines: deque[str] = deque(maxlen=2000)
         self.lines.append(f"$ {self.cmd}")
@@ -38,6 +43,8 @@ class ConsoleScreen(Screen):
     def _on_exit(self, code: int):
         self.exit_code = code
         self.status = "done"
+        if self.exclusive:
+            self.app.resume_gpio()
         self.lines.append("")
         self.lines.append(f"[exited {code}]  press B to go back")
 
@@ -45,6 +52,8 @@ class ConsoleScreen(Screen):
     def on_action(self, action: str):
         if action == "B":
             self.runner.stop()
+            if self.exclusive:
+                self.app.resume_gpio()
             self.app.pop()
         elif action == "UP":
             self.scroll += 3

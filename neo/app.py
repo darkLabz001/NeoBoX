@@ -30,6 +30,7 @@ class App:
         from .audiofx import Sfx
         self.sfx = Sfx(enabled=(mode != "headless"))
         self.action_queue: queue.Queue[str] = queue.Queue()
+        self.use_gpio = use_gpio
         self.gpio = None
         if use_gpio:
             self._init_gpio()
@@ -57,6 +58,17 @@ class App:
             print("[gpio] backend started")
         except Exception as exc:
             print(f"[gpio] disabled: {exc}")
+
+    def pause_gpio(self):
+        """Release the GPIO lines so an external game's key bridge can claim them."""
+        if self.gpio:
+            self.gpio.stop()
+            self.gpio = None
+            print("[gpio] paused")
+
+    def resume_gpio(self):
+        if self.use_gpio and self.gpio is None:
+            self._init_gpio()
 
     # --- screen stack ---------------------------------------------------
     def push(self, screen):
@@ -94,9 +106,12 @@ class App:
         from .payloads import build_command
         from .screens.console import ConsoleScreen
 
+        exclusive = meta.get("input") == "gpio"
+
         def go(params: dict):
             cmd = build_command(meta, params)
-            self.push(ConsoleScreen(self, {"name": meta["name"], "cmd": cmd, "mode": "capture"}))
+            self.push(ConsoleScreen(self, {"name": meta["name"], "cmd": cmd, "mode": "capture"},
+                                    exclusive=exclusive))
 
         needs = meta.get("needs", [])
         if needs:

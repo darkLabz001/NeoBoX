@@ -35,7 +35,7 @@ def prettify(stem: str) -> str:
 
 def parse_meta(path: Path) -> dict:
     meta = {"path": str(path), "name": prettify(path.stem),
-            "desc": "", "needs": [], "icon": None}
+            "desc": "", "needs": [], "icon": None, "input": None}
     try:
         with open(path, "r", errors="replace") as fh:
             for _ in range(40):
@@ -54,6 +54,8 @@ def parse_meta(path: Path) -> dict:
                     meta["icon"] = val
                 elif key == "needs":
                     meta["needs"] = [x.strip() for x in val.split(",") if x.strip()]
+                elif key == "input":
+                    meta["input"] = val.strip().lower()
     except Exception:
         pass
     return meta

@@ -60,4 +60,8 @@ echo "[5/5] force 640x480 from KMS init (HAT panel; avoids scaler re-sync black)
 CMD=/boot/firmware/cmdline.txt
 grep -q "video=HDMI" "$CMD" || sed -i '1 s/$/ video=HDMI-A-1:640x480M@60/' "$CMD"
 
+echo "[6/6] games: Doom engine, freedoom WAD, uinput bridge deps"
+apt-get install -y chocolate-doom freedoom python3-evdev || true
+modprobe uinput || true; echo uinput > /etc/modules-load.d/uinput.conf
+
 echo "Done. Reboot to apply."
