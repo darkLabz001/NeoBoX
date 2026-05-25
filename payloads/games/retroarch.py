@@ -53,40 +53,33 @@ print("  Combo: SELECT (hold) + START to exit back to Neo")
 sink = hdmi_sink()
 setvol(sink, GAME_VOL)
 
-# Explicit configuration to ensure the virtual keyboard is used
+# Use _key suffixes for keyboard mapping
 cfg_path = Path(tempfile.gettempdir()) / "neo_retroarch_hotkeys.cfg"
 cfg_content = [
-    'video_driver = "gl"',
     'video_fullscreen = "true"',
     'input_driver = "udev"',
-    'input_joypad_driver = "udev"',
-    'input_keyboard_layout = "us"',
-    'input_enable_hotkey = "rshift"',
-    'input_exit_emulator = "enter"',
-    'input_player1_up = "up"',
-    'input_player1_down = "down"',
-    'input_player1_left = "left"',
-    'input_player1_right = "right"',
-    'input_player1_a = "x"',
-    'input_player1_b = "z"',
-    'input_player1_x = "s"',
-    'input_player1_y = "a"',
-    'input_player1_l = "q"',
-    'input_player1_r = "w"',
-    'input_player1_start = "enter"',
-    'input_player1_select = "rshift"',
-    # Disable autoconfig so it doesn't fight our manual mapping
-    'input_autodetect_enable = "false"',
+    'input_enable_hotkey_key = "rshift"',
+    'input_exit_emulator_key = "enter"',
+    'input_player1_up_key = "up"',
+    'input_player1_down_key = "down"',
+    'input_player1_left_key = "left"',
+    'input_player1_right_key = "right"',
+    'input_player1_a_key = "x"',
+    'input_player1_b_key = "z"',
+    'input_player1_x_key = "s"',
+    'input_player1_y_key = "a"',
+    'input_player1_l_key = "q"',
+    'input_player1_r_key = "w"',
+    'input_player1_start_key = "enter"',
+    'input_player1_select_key = "rshift"',
 ]
 cfg_path.write_text("\n".join(cfg_content) + "\n")
 
 # Start bridge as root
 bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "retroarch"])
-time.sleep(1.5)
+time.sleep(1.0)
 
 try:
-    # Run retroarch with the hotkey override
-    # -L (core) is not specified, it will open the menu
     subprocess.run([engine, "--appendconfig", str(cfg_path)])
 finally:
     try:
