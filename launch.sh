@@ -27,9 +27,9 @@ if [ -n "$hdmi_id" ]; then
   wpctl set-volume "$hdmi_id" 1.3 2>/dev/null || true
 fi
 
-# Start Web UI in background
-export PYTHONPATH=$PYTHONPATH:/usr/local/lib/python3.13/dist-packages
-python3 web/server.py > "$HOME/neo/web.log" 2>&1 &
+# Start Web UI in background using systemd-run for persistence
+sudo systemctl stop neo-web 2>/dev/null || true
+sudo systemd-run --unit=neo-web --setenv=PYTHONPATH=$PYTHONPATH:/usr/local/lib/python3.13/dist-packages python3 "$HOME/neo/web/server.py"
 
 # Log persists across reboots (unlike /tmp) for debugging.
 exec python3 run.py --mode fullscreen --gpio >> "$HOME/neo/neo.log" 2>&1

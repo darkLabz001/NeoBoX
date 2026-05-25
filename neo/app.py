@@ -132,14 +132,12 @@ class App:
         elif action == "web_ui":
             self.show_web_info()
         elif action == "web_ui_log":
-            self.run_command(f"echo '--- Last 50 lines of web.log ---'; tail -n 50 $HOME/neo/web.log", "Web Log")
+            self.run_command(f"sudo journalctl -u neo-web -n 50", "Web Log")
         elif action == "restart_web_ui":
             cmd = (
-                "pkill -f 'web/server.py' || true; "
-                "sleep 1; "
-                "export PYTHONPATH=$PYTHONPATH:/usr/local/lib/python3.13/dist-packages; "
-                "python3 web/server.py > $HOME/neo/web.log 2>&1 & "
-                "echo 'Web UI restarted on port 8000. Check Web UI for address.'"
+                "sudo systemctl stop neo-web || true; "
+                "sudo systemd-run --unit=neo-web --setenv=PYTHONPATH=$PYTHONPATH:/usr/local/lib/python3.13/dist-packages python3 /home/kali/neo/web/server.py; "
+                "echo 'Web UI restarted via systemd-run. Check Web UI for address.'"
             )
             self.run_command(cmd, "Reset Web")
         elif action == "deps":
