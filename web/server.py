@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 import sys
-
-# Try to use eventlet if available, but don't crash if it's not
-try:
-    import eventlet
-    eventlet.monkey_patch()
-    async_mode = 'eventlet'
-except ImportError:
-    async_mode = 'threading'
-
 import os
 import pty
 import subprocess
@@ -21,11 +12,15 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 
+# We'll use 'threading' mode for maximum compatibility across all devices
+async_mode = 'threading'
+
 print(f"--- NeoBox Web UI Starting (Mode: {async_mode}) ---")
 sys.stdout.flush()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'neobox-secret!'
+# Allow all origins for the handheld environment
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode=async_mode)
 
 # Paths
@@ -48,11 +43,13 @@ class TerminalSession:
         try:
             (self.child_pid, self.fd) = pty.fork()
             if self.child_pid == 0:
+                # In child
                 os.environ["TERM"] = "xterm-256color"
                 os.environ["SHELL"] = "/bin/bash"
                 os.chdir(str(BASE_DIR))
                 os.execvp("/bin/bash", ["/bin/bash"])
             else:
+                # In parent
                 socketio.start_background_task(target=self.read_output)
         except Exception as e:
             print(f"Error spawning terminal: {e}")
@@ -136,10 +133,10 @@ def terminal_resize(data):
     term.resize(data["rows"], data["cols"])
 
 if __name__ == '__main__':
-    print("Binding to 0.0.0.0:8080...")
+    print("Binding to 0.0.0.0:8000...")
     sys.stdout.flush()
     try:
-        socketio.run(app, host='0.0.0.0', port=8080, debug=False)
+        socketio.run(app, host='0.0.0.0', port=8000, debug=False, allow_unsafe_werkzeug=True)
     except Exception as e:
         print(f"CRITICAL STARTUP ERROR: {e}")
         sys.stdout.flush()

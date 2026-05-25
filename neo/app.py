@@ -132,9 +132,15 @@ class App:
         elif action == "web_ui":
             self.show_web_info()
         elif action == "web_ui_log":
-            self.run_command(f"cat $HOME/neo/web.log", "Web Log")
+            self.run_command(f"echo '--- web.log ---'; tail -n 20 $HOME/neo/web.log", "Web Log")
         elif action == "restart_web_ui":
-            self.run_command(f"pkill -f 'python3 web/server.py'; python3 web/server.py > $HOME/neo/web.log 2>&1 & echo 'Restarting Web UI...'", "Web UI")
+            cmd = (
+                "pkill -f 'web/server.py' || true; "
+                "sleep 1; "
+                "python3 web/server.py > $HOME/neo/web.log 2>&1 & "
+                "echo 'Web UI restarted on port 8000. Check Web UI for address.'"
+            )
+            self.run_command(cmd, "Reset Web")
         elif action == "deps":
             self.install_deps()
         elif action == "volume":
@@ -176,7 +182,7 @@ class App:
         except Exception:
             ip = "127.0.0.1"
         
-        msg = f"Web UI is running at:\\nhttp://{ip}:8080\\n\\nTerminal & ROM Uploads"
+        msg = f"Web UI is running at:\\nhttp://{ip}:8000\\n\\nTerminal & ROM Uploads"
         self.run_command(f"echo -e '{msg}'", "Web UI")
 
     def run_ota(self):
