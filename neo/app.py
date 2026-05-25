@@ -238,11 +238,18 @@ class App:
         if self.mode == "headless":
             return
         win_w, win_h = self.window.get_size()
-        scale = min(win_w / config.SCREEN_W, win_h / config.SCREEN_H)
-        size = (int(config.SCREEN_W * scale), int(config.SCREEN_H * scale))
-        scaled = pygame.transform.smoothscale(self.logical, size)
-        self.window.fill((0, 0, 0))
-        self.window.blit(scaled, ((win_w - size[0]) // 2, (win_h - size[1]) // 2))
+        if self.mode == "fullscreen":
+            # Stretch to fill the panel. On the Game HAT the HDMI board rescales
+            # to the 480x320 panel, so filling here yields a correct full-screen
+            # image (no letterbox bars).
+            scaled = pygame.transform.smoothscale(self.logical, (win_w, win_h))
+            self.window.blit(scaled, (0, 0))
+        else:
+            scale = min(win_w / config.SCREEN_W, win_h / config.SCREEN_H)
+            size = (int(config.SCREEN_W * scale), int(config.SCREEN_H * scale))
+            scaled = pygame.transform.smoothscale(self.logical, size)
+            self.window.fill((0, 0, 0))
+            self.window.blit(scaled, ((win_w - size[0]) // 2, (win_h - size[1]) // 2))
         pygame.display.flip()
 
     def run(self):

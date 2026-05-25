@@ -15,5 +15,10 @@ export SDL_VIDEODRIVER=wayland
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 
+# Game HAT panel is 480x320; its HDMI board only accepts standard modes and
+# scales to the panel. Feed it the smallest (640x480) for the sharpest result.
+command -v wlr-randr >/dev/null && wlr-randr --output HDMI-A-1 --mode 640x480 2>/dev/null || true
+sleep 1
+
 # Log persists across reboots (unlike /tmp) for debugging.
 exec python3 run.py --mode fullscreen --gpio >> "$HOME/neo/neo.log" 2>&1
