@@ -38,7 +38,8 @@ class App:
         self._init_remote_listener()
 
         self.stack: list = []
-...
+        self.clock = pygame.time.Clock()
+
     def _init_remote_listener(self):
         """Start a UDP listener for remote actions (Web UI)."""
         import socket
@@ -60,7 +61,6 @@ class App:
         t = threading.Thread(target=_listen, daemon=True)
         t.start()
         print("[remote] listener started on port 9999")
-        self.clock = pygame.time.Clock()
 
     # --- window ---------------------------------------------------------
     def _init_window(self):
