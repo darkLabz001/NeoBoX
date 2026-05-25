@@ -9,6 +9,7 @@
     {"name": "Social",    "id": "social",    "icon": "social"},
     {"name": "Games",     "id": "games",     "icon": "games"},
     {"name": "System",    "id": "system",    "icon": "system"},
+    {"name": "Media",     "id": "media",     "icon": "media"},
     {"name": "Settings",  "id": "settings",  "icon": "settings", "builtin": true}
   ]
 }
