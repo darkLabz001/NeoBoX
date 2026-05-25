@@ -4,6 +4,8 @@
 # neo-icon: games
 # neo-input: gpio
 # neo-apt: retroarch
+# neo-roms: ps1
+# neo-romext: .cue .pbp .chd
 """Launch a PS1 game in RetroArch + pcsx-rearmed (built-in HLE BIOS — no BIOS
 file needed for most games). ROMs live in ~/roms/ps1 (upload via the Web UI).
 Controls: D-pad=move  A/B/X/Y=face  L/R=bumpers  Start  Select  |  SELECT+START = exit."""

@@ -139,21 +139,25 @@ class App:
         self.set_theme(names[(i + 1) % len(names)])
 
     def run_payload(self, meta: dict):
-        from .payloads import build_command
-        from .screens.console import ConsoleScreen
-
-        exclusive = meta.get("input") == "gpio"
-
-        def go(params: dict):
-            cmd = build_command(meta, params)
-            self.push(ConsoleScreen(self, {"name": meta["name"], "cmd": cmd, "mode": "capture"},
-                                    exclusive=exclusive))
-
+        # ROM-based games: show a picker first so you choose which ROM to play.
+        if meta.get("roms"):
+            from .screens.rompicker import RomPickerScreen
+            self.push(RomPickerScreen(self, meta))
+            return
         needs = meta.get("needs", [])
         if needs:
-            self._collect_params(meta, needs, {}, go)
+            self._collect_params(meta, needs, {},
+                                 lambda params: self.launch_payload(meta, params))
         else:
-            go({})
+            self.launch_payload(meta, {})
+
+    def launch_payload(self, meta: dict, params: dict, rom: str | None = None):
+        from .payloads import build_command
+        from .screens.console import ConsoleScreen
+        exclusive = meta.get("input") == "gpio"
+        cmd = build_command(meta, params, rom=rom)
+        self.push(ConsoleScreen(self, {"name": meta["name"], "cmd": cmd, "mode": "capture"},
+                                exclusive=exclusive))
 
     def settings_action(self, action: str):
         if action == "theme":

@@ -35,7 +35,8 @@ def prettify(stem: str) -> str:
 
 def parse_meta(path: Path) -> dict:
     meta = {"path": str(path), "name": prettify(path.stem),
-            "desc": "", "needs": [], "icon": None, "input": None, "apt": []}
+            "desc": "", "needs": [], "icon": None, "input": None, "apt": [],
+            "roms": None, "romext": []}
     try:
         with open(path, "r", errors="replace") as fh:
             for _ in range(40):
@@ -58,6 +59,13 @@ def parse_meta(path: Path) -> dict:
                     meta["input"] = val.strip().lower()
                 elif key == "apt":
                     meta["apt"] = [x.strip() for x in val.split(",") if x.strip()]
+                elif key == "roms":
+                    # ROM subdirectory under ~/roms (e.g. "ps1") -> shows a picker
+                    meta["roms"] = val.strip()
+                elif key == "romext":
+                    # extensions to list (e.g. ".cue .pbp .chd"); normalise to lower w/ dot
+                    meta["romext"] = [(e if e.startswith(".") else "." + e).lower()
+                                      for e in re.split(r"[,\s]+", val) if e.strip()]
     except Exception:
         pass
     return meta
@@ -86,10 +94,17 @@ def list_all_payloads() -> list[dict]:
     return out
 
 
-def build_command(meta: dict, params: dict) -> str:
-    """Compose the shell command to run a payload with collected inputs."""
+def build_command(meta: dict, params: dict, rom: str | None = None) -> str:
+    """Compose the shell command to run a payload with collected inputs.
+
+    `rom`, if given, is passed as the first positional arg (argv[1]) — game
+    payloads read their ROM path from there.
+    """
     env = " ".join(f"NEO_{n.upper()}={shlex.quote(params.get(n, ''))}"
                    for n in meta.get("needs", []))
-    args = " ".join(shlex.quote(params.get(n, "")) for n in meta.get("needs", []))
-    cmd = f"python3 {shlex.quote(meta['path'])} {args}".strip()
+    parts = []
+    if rom:
+        parts.append(shlex.quote(rom))
+    parts += [shlex.quote(params.get(n, "")) for n in meta.get("needs", [])]
+    cmd = f"python3 {shlex.quote(meta['path'])} {' '.join(parts)}".strip()
     return f"{env} {cmd}".strip()
