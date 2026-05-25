@@ -64,7 +64,7 @@ echo "[6/6] games: Doom engine, RetroArch, Mednafen, uinput bridge deps"
 apt-get install -y chocolate-doom freedoom retroarch retroarch-assets libretro-core-info mednafen python3-evdev python3-pip python3-flask python3-flask-socketio python3-eventlet || true
 pip3 install -r "$NEO/requirements-web.txt" --break-system-packages || true
 # Ensure firewall allows the web UI port
-command -v ufw >/dev/null && ufw allow 8000/tcp || true
+command -v ufw >/dev/null && ufw allow 8888/tcp || true
 modprobe uinput || true; echo uinput > /etc/modules-load.d/uinput.conf
 
 echo "Done. Reboot to apply."

@@ -186,7 +186,7 @@ class App:
         is_running = subprocess.call("pgrep -f 'web/server.py' > /dev/null", shell=True) == 0
         status = "[RUNNING]" if is_running else "[NOT RUNNING]"
 
-        msg = f"Web UI Status: {status}\\nAddress: http://{ip}:8000\\n\\n"
+        msg = f"Web UI Status: {status}\\nAddress: http://{ip}:8888\\n\\n"
         if not is_running:
             msg += "DIAGNOSTIC: Server failed to start.\\nCheck 'Web Log' for errors."
         else:
