@@ -5,8 +5,8 @@
 # desktop — so a broken build can never lock us out of the device.
 [ -f "$HOME/neo/NOAUTOSTART" ] && exit 0
 
-# Give the Wayland compositor a moment to come up.
-sleep 2
+# Brief settle for the compositor + session services (pipewire) to be ready.
+sleep 1
 
 cd "$HOME/neo" || exit 0
 export SDL_VIDEODRIVER=wayland
@@ -26,7 +26,6 @@ if [ -n "$hdmi_id" ]; then
   wpctl set-mute "$hdmi_id" 0 2>/dev/null || true
   wpctl set-volume "$hdmi_id" 1.3 2>/dev/null || true
 fi
-sleep 1
 
 # Log persists across reboots (unlike /tmp) for debugging.
 exec python3 run.py --mode fullscreen --gpio >> "$HOME/neo/neo.log" 2>&1
