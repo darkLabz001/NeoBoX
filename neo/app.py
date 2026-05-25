@@ -185,7 +185,7 @@ class App:
             from .screens.wifi import WifiScreen
             self.push(WifiScreen(self))
         elif action == "input_log":
-            self.run_command("tail -n 80 ~/neo/keybridge.log 2>/dev/null || echo 'no keybridge log yet'",
+            self.run_command("sudo -n tail -n 80 ~/neo/keybridge.log 2>/dev/null || echo 'no keybridge log yet'",
                              "Input Log")
 
     def install_deps(self):
