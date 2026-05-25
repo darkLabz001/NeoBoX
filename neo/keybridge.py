@@ -64,15 +64,31 @@ def main():
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: run.update(v=False))
 
+    # PANIC EXIT: holding START+SELECT+L+R together force-kills the game even if
+    # it has frozen (the bridge polls GPIO directly, so it never freezes).
+    panic_pins = {pins[a] for a in ("START", "SELECT", "L", "R") if a in pins}
+    import os
+    panic_hold = 0
+
     prev = {p: 1 for p in plist}
     while run["v"]:
         vals = req.get_values()
+        pressed = set()
         for i, p in enumerate(plist):
             lvl = 1 if vals[i] == Value.ACTIVE else 0
+            if lvl == pressed_level:
+                pressed.add(p)
             if lvl != prev[p]:
                 ui.write(e.EV_KEY, keymap[action_of[p]], 1 if lvl == pressed_level else 0)
                 ui.syn()
                 prev[p] = lvl
+        if panic_pins and panic_pins <= pressed:
+            panic_hold += 1
+            if panic_hold > 40:   # ~0.3s held
+                os.system("pkill -9 -f 'retroarch|chocolate-doom|mednafen|pcsx'")
+                break
+        else:
+            panic_hold = 0
         time.sleep(0.008)
     ui.close()
 

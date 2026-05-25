@@ -25,7 +25,7 @@ class ConsoleScreen(Screen):
         # exclusive: release GPIO while this runs (so a game's key bridge can use it)
         self.exclusive = exclusive
         if exclusive:
-            app.pause_gpio()
+            app.enter_game_mode()
         self.cmd = util.fill(tool.get("cmd", ""), params or {})
         self.lines: deque[str] = deque(maxlen=2000)
         self.lines.append(f"$ {self.cmd}")
@@ -47,7 +47,7 @@ class ConsoleScreen(Screen):
         self.exit_code = code
         self.status = "done"
         if self.exclusive:
-            self.app.resume_gpio()
+            self.app.exit_game_mode()
         self.lines.append("")
         self.lines.append(f"[exited {code}]  press B to go back")
 
@@ -56,7 +56,7 @@ class ConsoleScreen(Screen):
         if action == "B":
             self.runner.stop()
             if self.exclusive:
-                self.app.resume_gpio()
+                self.app.exit_game_mode()
             self.app.pop()
         elif action == "UP":
             self.scroll += 3

@@ -95,6 +95,17 @@ class App:
         if self.use_gpio and self.gpio is None:
             self._init_gpio()
 
+    def enter_game_mode(self):
+        """Hand the device to an external game: release GPIO and STOP rendering
+        so the emulator gets the whole CPU (otherwise audio/video stutters)."""
+        self.pause_gpio()
+        self._suspend_render = True
+
+    def exit_game_mode(self):
+        self._suspend_render = False
+        self._dirty = True
+        self.resume_gpio()
+
     # --- screen stack ---------------------------------------------------
     def push(self, screen):
         self.stack.append(screen)
@@ -376,9 +387,13 @@ class App:
         # running, or ~1/s for the clock. Keeps the Pi 3B+ near-idle on static
         # screens so pipewire never underruns (no system-wide audio crackle).
         self._dirty = True
+        self._suspend_render = False
         last_render = 0.0
         while self.running:
             self.clock.tick(config.FPS)
+            if self._suspend_render:        # a game owns the screen; stay out of its way
+                time.sleep(0.15)
+                continue
             self._pump_events()
             now = time.monotonic()
             animating = getattr(self.current, "is_animating", lambda: False)()
