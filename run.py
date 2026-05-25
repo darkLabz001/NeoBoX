@@ -21,6 +21,8 @@ def main():
                    help="comma-separated actions dispatched before the screenshot")
     p.add_argument("--settle", type=int, default=12,
                    help="frames to render before saving (lets async output arrive)")
+    p.add_argument("--no-intro", action="store_true", help="skip the boot intro")
+    p.add_argument("--intro", action="store_true", help="show intro (preview in screenshot)")
     args = p.parse_args()
 
     if args.screenshot:
@@ -37,7 +39,11 @@ def main():
 
     kwargs = {"theme_name": args.theme} if args.theme else {}
     app = App(mode=args.mode, scale=args.scale, use_gpio=args.gpio, **kwargs)
-    app.push(HomeScreen(app))
+    if args.intro or (not args.screenshot and not args.no_intro):
+        from neo.screens.intro import IntroScreen
+        app.push(IntroScreen(app))
+    else:
+        app.push(HomeScreen(app))
 
     if args.screenshot:
         acts = [a.strip().upper() for a in args.actions.split(",") if a.strip()]

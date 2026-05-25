@@ -6,8 +6,9 @@ import pygame
 
 class Screen:
     title = "NEO"
-    modal = False    # if True, the screen handles MENU/EXIT itself
-    overlay = False   # if True, the screen beneath is drawn first (dim backdrop)
+    modal = False     # if True, the screen handles MENU/EXIT itself
+    overlay = False    # if True, the screen beneath is drawn first (dim backdrop)
+    hide_hints = False  # if True, the bottom hint bar is not drawn
 
     def __init__(self, app):
         self.app = app

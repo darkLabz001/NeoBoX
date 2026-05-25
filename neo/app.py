@@ -73,6 +73,11 @@ class App:
     def quit(self):
         self.running = False
 
+    def go_home(self):
+        """Replace the whole stack with a fresh home screen (used after the intro)."""
+        from .screens.home import HomeScreen
+        self.stack = [HomeScreen(self)]
+
     # --- behaviours screens call ---------------------------------------
     def set_theme(self, name: str):
         self.theme = theme_mod.load(name)
@@ -242,7 +247,8 @@ class App:
         if getattr(self.current, "overlay", False) and len(self.stack) > 1:
             self.stack[-2].draw(self.logical, self.theme)   # backdrop
         self.current.draw(self.logical, self.theme)
-        self._draw_hints(self.logical, self.theme)
+        if not getattr(self.current, "hide_hints", False):
+            self._draw_hints(self.logical, self.theme)
 
     def present(self):
         if self.mode == "headless":
@@ -263,7 +269,6 @@ class App:
         pygame.display.flip()
 
     def run(self):
-        self.sfx.play("boot")
         while self.running:
             dt = self.clock.tick(config.FPS) / 1000.0
             self._pump_events()
