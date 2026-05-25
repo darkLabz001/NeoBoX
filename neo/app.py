@@ -104,6 +104,14 @@ class App:
     def exit_game_mode(self):
         self._suspend_render = False
         self._dirty = True
+        # The key bridge runs as root (sudo), so a payload's process-group
+        # SIGTERM (sent as kali) can't reach it — if the game was stopped (B)
+        # rather than exiting cleanly, keybridge can linger and keep holding the
+        # GPIO lines, leaving the UI with dead buttons. Kill it explicitly so the
+        # lines are freed before we re-acquire them.
+        import subprocess
+        subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"],
+                       capture_output=True)
         self.resume_gpio()
 
     # --- screen stack ---------------------------------------------------

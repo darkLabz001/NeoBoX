@@ -113,11 +113,23 @@ class GpioBackend:
 
         pins = sorted(self.pin_of.values())
         settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
-        try:
-            req = gpiod.request_lines(self.chip_path, consumer="neo-ui",
-                                      config={p: settings for p in pins})
-        except Exception as exc:  # pragma: no cover
-            print(f"[gpio] cannot request lines: {exc}")
+        # Retry: after a game exits, the key bridge may still be releasing the
+        # lines for a moment. Without this, resume after a game could silently
+        # leave the UI with no buttons.
+        req = None
+        for attempt in range(15):
+            try:
+                req = gpiod.request_lines(self.chip_path, consumer="neo-ui",
+                                          config={p: settings for p in pins})
+                break
+            except Exception as exc:  # pragma: no cover
+                if self._stop.is_set():
+                    return
+                if attempt == 0 or attempt == 14:
+                    print(f"[gpio] request lines busy (try {attempt}): {exc}")
+                time.sleep(0.1)
+        if req is None:
+            print("[gpio] cannot request lines after retries")
             return
 
         pressed_level = 0 if self.active_low else 1

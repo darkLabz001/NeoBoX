@@ -14,7 +14,10 @@ PAYLOADS_DIR = BASE_DIR / "payloads"
 # We always render to a 480x320 surface and scale it to the real window.
 SCREEN_W = 480
 SCREEN_H = 320
-FPS = 30
+# 60 fps for smooth scrolling/animations. The UI renders on demand (see App.run),
+# so idle cost stays near-zero; the higher rate only matters during the brief
+# moments something is animating.
+FPS = 60
 
 DEFAULT_THEME = "neobox"
 
