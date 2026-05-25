@@ -3,6 +3,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
+from pathlib import Path
+
+LOG = Path(__file__).resolve().parent.parent / "wifi.log"
+
+
+def _log(msg: str):
+    try:
+        with open(LOG, "a") as fh:
+            fh.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
 
 
 def available() -> bool:
@@ -47,8 +59,25 @@ def scan(rescan: str = "auto") -> list[dict]:
 
 
 def connect(ssid: str, password: str | None = None, timeout: int = 45):
-    # Delete any stale saved profile for this SSID first — otherwise nmcli reuses
-    # an old (possibly wrong-password) profile and fails even with a correct pw.
+    """Switch to `ssid`, leaving any current network. Returns (ok, message).
+
+    Switching reliably needs three things, or NetworkManager silently keeps you
+    on the original network:
+      1. Tear down the current connection with `connection down` first. A manual
+         down tells NM not to auto-reconnect that profile, so it can't win the
+         race back onto the old network while the new one is associating.
+      2. Delete any stale saved profile for the target SSID, so a wrong saved
+         password isn't reused (fails even when the typed password is correct).
+      3. Verify we actually landed on `ssid` afterwards — nmcli can report
+         success yet leave us on a previously-saved autoconnect network.
+    """
+    cur = current_ssid()
+    if cur and cur != ssid:
+        _log(f"switch: bringing down current network '{cur}' before connecting '{ssid}'")
+        try:
+            _run(["connection", "down", "id", cur], timeout=15)
+        except Exception as exc:
+            _log(f"  (down failed, continuing: {exc})")
     try:
         subprocess.run(["nmcli", "connection", "delete", "id", ssid],
                        capture_output=True, text=True, timeout=10)
@@ -61,11 +90,21 @@ def connect(ssid: str, password: str | None = None, timeout: int = 45):
         r = _run(args, timeout=timeout)
         lines = [ln for ln in (r.stdout + r.stderr).strip().splitlines() if ln.strip()]
         msg = lines[-1] if lines else ("Connected" if r.returncode == 0 else "Failed")
-        return r.returncode == 0, msg
+        _log(f"connect '{ssid}': rc={r.returncode} out={lines}")
     except subprocess.TimeoutExpired:
+        _log(f"connect '{ssid}': timed out after {timeout}s")
         return False, "Timed out"
     except Exception as exc:
+        _log(f"connect '{ssid}': error {exc}")
         return False, str(exc)
+    # Verify the switch actually took — don't trust the return code alone.
+    actual = current_ssid()
+    if actual == ssid:
+        return True, f"Connected to {ssid}"
+    _log(f"connect '{ssid}': NOT active afterwards (now on '{actual}')")
+    if actual:
+        return False, f"Failed — still on {actual}"
+    return False, msg
 
 
 def current_ssid() -> str | None:
