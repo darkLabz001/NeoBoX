@@ -9,6 +9,8 @@ ASSETS_DIR = BASE_DIR / "assets"
 ICONS_DIR = ASSETS_DIR / "icons"
 BACKGROUNDS_DIR = ASSETS_DIR / "backgrounds"
 PAYLOADS_DIR = BASE_DIR / "payloads"
+CACHE_DIR = Path.home() / ".cache" / "neo"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Logical screen: native resolution of the Waveshare Game HAT 3.5" IPS.
 # We always render to a 480x320 surface and scale it to the real window.

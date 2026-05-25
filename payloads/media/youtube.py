@@ -20,27 +20,28 @@ IPC_SOCKET = "/tmp/mpv-socket"
 
 def list_results(query):
     """Output search results as JSON for the Neo UI to consume."""
-    # Format: title ||| id ||| duration_string ||| thumbnail ||| view_count
-    # Removed --flat-playlist to ensure we get thumbnails
-    template = "%(title)s|||%(id)s|||%(duration_string)s|||%(thumbnail)s|||%(view_count)d"
+    # Format: title ||| id ||| duration_string ||| thumbnail ||| view_count ||| uploader
+    template = "%(title)s|||%(id)s|||%(duration_string)s|||%(thumbnail)s|||%(view_count)d|||%(uploader)s"
+    # Fetch 30 results for a better "infinite" feel
     cmd = [
         "yt-dlp",
         "--print", template,
         "--no-playlist",
-        f"ytsearch10:{query}"
+        f"ytsearch30:{query}"
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
         results = []
         for line in proc.stdout.strip().split("\n"):
             parts = line.split("|||")
-            if len(parts) == 5:
+            if len(parts) == 6:
                 results.append({
                     "title": parts[0],
                     "id": parts[1],
                     "duration": parts[2],
                     "thumb": parts[3],
                     "views": parts[4],
+                    "channel": parts[5],
                     "url": f"https://youtube.com/watch?v={parts[1]}"
                 })
         print(json.dumps(results))
@@ -60,8 +61,8 @@ def play(target):
         f"--input-ipc-server={IPC_SOCKET}",
         "--hwdec=auto",
         "--cache=yes",
-        "--demuxer-max-bytes=100M",
-        "--demuxer-readahead-secs=30",
+        "--demuxer-max-bytes=120M",
+        "--demuxer-readahead-secs=40",
         target
     ]
 
