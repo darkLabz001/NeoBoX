@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import eventlet
+eventlet.monkey_patch()
+
 import sys
 import os
 import pty
@@ -15,8 +18,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 
-# USE THREADING - No monkey patching needed
-async_mode = 'threading'
+async_mode = 'eventlet'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'neobox-secret!'
@@ -30,9 +32,11 @@ ROM_DIR.mkdir(parents=True, exist_ok=True)
 
 # System Stats Background Task
 def stats_thread():
+    print("Background stats thread started.")
     while True:
         try:
-            cpu = psutil.cpu_percent(interval=None)
+            # interval=1 is needed for accurate CPU % in a thread
+            cpu = psutil.cpu_percent(interval=1)
             ram = psutil.virtual_memory().percent
             temp = 0
             try:
@@ -46,9 +50,11 @@ def stats_thread():
                 'temp': temp,
                 'uptime': time.time() - psutil.boot_time()
             }, namespace='/system')
-        except: pass
-        socketio.sleep(2)
+        except Exception as e:
+            print(f"Stats error: {e}")
+        socketio.sleep(1)
 
+# Start stats thread
 socketio.start_background_task(stats_thread)
 
 class TerminalSession:
@@ -116,12 +122,9 @@ def delete_file():
     data = request.json
     path = data.get('path')
     if not path: return jsonify({"error": "No path"}), 400
-    
-    # Safety check: ensure it's in roms or payloads
     abs_path = (ROM_DIR.parent / path).resolve()
     if not str(abs_path).startswith(str(ROM_DIR)) and not str(abs_path).startswith(str(PAYLOAD_DIR)):
         return jsonify({"error": "Access denied"}), 403
-    
     if abs_path.exists():
         abs_path.unlink()
         return jsonify({"success": True})
@@ -129,18 +132,26 @@ def delete_file():
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
-    file = request.files['file']
-    if file.filename == '': return jsonify({"error": "No selected file"}), 400
-    target_type = request.form.get('type', 'rom')
-    filename = shlex.quote(file.filename).strip("'")
-    if target_type == 'payload':
-        save_path = PAYLOAD_DIR / "custom" / filename
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-    else: save_path = ROM_DIR / filename
-    file.save(str(save_path))
-    if target_type == 'payload': save_path.chmod(0o755)
-    return jsonify({"success": True, "path": str(save_path)})
+    try:
+        if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
+        file = request.files['file']
+        if file.filename == '': return jsonify({"error": "No selected file"}), 400
+        target_type = request.form.get('type', 'rom')
+        # Safer filename handling
+        from werkzeug.utils import secure_filename
+        filename = secure_filename(file.filename)
+        if target_type == 'payload':
+            save_path = PAYLOAD_DIR / "custom" / filename
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            save_path = ROM_DIR / filename
+        file.save(str(save_path))
+        if target_type == 'payload': save_path.chmod(0o755)
+        print(f"Saved file to {save_path}")
+        return jsonify({"success": True, "path": str(save_path)})
+    except Exception as e:
+        print(f"Upload error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # SocketIO Events
 @socketio.on("connect", namespace="/terminal")
@@ -161,6 +172,7 @@ def remote_action(data):
         sock.close()
 
 if __name__ == '__main__':
+    print("--- NeoBox Web UI Starting (Mode: eventlet) ---")
     print("Binding to 0.0.0.0:8888...")
     sys.stdout.flush()
-    socketio.run(app, host='0.0.0.0', port=8888, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=8888, debug=False)

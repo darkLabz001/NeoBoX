@@ -21,7 +21,11 @@ const termSocket = io('/terminal');
 const sysSocket = io('/system');
 const remoteSocket = io('/remote');
 
+sysSocket.on('connect', () => console.log('Connected to system stats'));
+remoteSocket.on('connect', () => console.log('Connected to remote control'));
+
 termSocket.on('connect', () => {
+    console.log('Connected to terminal');
     termSocket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
 });
 
@@ -35,6 +39,7 @@ term.onData((data) => {
 
 // System Stats
 sysSocket.on('sys_stats', (data) => {
+    console.log('Stats received:', data);
     // Update dashboard
     document.getElementById('cpu-val').innerText = data.cpu + '%';
     document.getElementById('cpu-bar').style.width = data.cpu + '%';
