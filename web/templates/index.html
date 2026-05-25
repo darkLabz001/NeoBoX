@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeoBox Web UI</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="logo">NEOBOX</div>
+        <nav>
+            <button onclick="showSection('terminal')">Terminal</button>
+            <button onclick="showSection('files')">Files & Uploads</button>
+        </nav>
+    </header>
+
+    <main>
+        <section id="terminal-section" class="active">
+            <div id="terminal"></div>
+        </section>
+
+        <section id="files-section">
+            <div class="upload-container">
+                <h3>Upload ROMs / Payloads</h3>
+                <form id="upload-form">
+                    <div class="input-group">
+                        <label>Target Type:</label>
+                        <select name="type" id="upload-type">
+                            <option value="rom">PS1 ROM (~/roms/ps1)</option>
+                            <option value="payload">Payload (payloads/custom/)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <input type="file" name="file" id="file-input">
+                    </div>
+                    <button type="submit" class="btn-primary">Upload</button>
+                </form>
+                <div id="upload-status"></div>
+            </div>
+
+            <div class="file-list-container">
+                <h3>Current ROMs</h3>
+                <ul id="rom-list"></ul>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

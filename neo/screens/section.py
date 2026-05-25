@@ -36,6 +36,7 @@ class SectionScreen(Screen):
     def _build_settings(self):
         self.items = [
             {"name": "WiFi", "glyph": "≋", "_action": "wifi"},
+            {"name": "Web UI", "glyph": "🌐", "_action": "web_ui"},
             {"name": "Theme", "glyph": "◑", "_action": "theme"},
             {"name": "Volume", "glyph": "♪", "_action": "volume"},
             {"name": "Update", "glyph": "↡", "_action": "update"},

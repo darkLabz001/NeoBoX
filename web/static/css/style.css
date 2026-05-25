@@ -1,0 +1,140 @@
+:root {
+    --bg: #06070d;
+    --bg-alt: #0c1020;
+    --accent: #b14bff;
+    --accent-dim: #7a36b3;
+    --text: #eaf2ff;
+    --text-dim: #7a86a8;
+    --danger: #ff5470;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+header {
+    background-color: #05060c;
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--bg-alt);
+    box-shadow: 0 0 15px rgba(177, 75, 255, 0.2);
+}
+
+.logo {
+    color: var(--accent);
+    font-size: 1.5rem;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-shadow: 0 0 10px var(--accent);
+}
+
+nav button {
+    background: transparent;
+    border: 1px solid var(--accent-dim);
+    color: var(--text);
+    padding: 0.5rem 1rem;
+    margin-left: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+nav button:hover {
+    background: var(--accent);
+    color: white;
+}
+
+main {
+    flex: 1;
+    position: relative;
+}
+
+section {
+    display: none;
+    padding: 2rem;
+    height: calc(100% - 4rem);
+}
+
+section.active {
+    display: block;
+}
+
+#terminal-section {
+    padding: 0;
+    height: 100%;
+}
+
+#terminal {
+    height: 100%;
+}
+
+.upload-container, .file-list-container {
+    background-color: var(--bg-alt);
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #1a2340;
+    margin-bottom: 2rem;
+    max-width: 600px;
+}
+
+h3 {
+    color: var(--accent);
+    margin-top: 0;
+}
+
+.input-group {
+    margin-bottom: 1rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--text-dim);
+}
+
+select, input[type="file"] {
+    width: 100%;
+    padding: 0.5rem;
+    background: var(--bg);
+    border: 1px solid var(--text-dim);
+    color: var(--text);
+}
+
+.btn-primary {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0.7rem 1.5rem;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+#rom-list {
+    list-style: none;
+    padding: 0;
+}
+
+#rom-list li {
+    padding: 0.5rem;
+    border-bottom: 1px solid #1a2340;
+    display: flex;
+    justify-content: space-between;
+}
+
+#rom-list li span {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+}
+
+#upload-status {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}

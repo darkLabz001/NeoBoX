@@ -27,5 +27,8 @@ if [ -n "$hdmi_id" ]; then
   wpctl set-volume "$hdmi_id" 1.3 2>/dev/null || true
 fi
 
+# Start Web UI in background
+python3 web/server.py > "$HOME/neo/web.log" 2>&1 &
+
 # Log persists across reboots (unlike /tmp) for debugging.
 exec python3 run.py --mode fullscreen --gpio >> "$HOME/neo/neo.log" 2>&1

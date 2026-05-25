@@ -129,6 +129,8 @@ class App:
             self.open_power_menu()
         elif action == "update":
             self.run_ota()
+        elif action == "web_ui":
+            self.show_web_info()
         elif action == "deps":
             self.install_deps()
         elif action == "volume":
@@ -159,6 +161,19 @@ class App:
             "echo && echo 'All dependencies installed.'"
         )
         self.run_command(cmd, "Deps")
+
+    def show_web_info(self):
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            ip = "127.0.0.1"
+        
+        msg = f"Web UI is running at:\\nhttp://{ip}:5000\\n\\nTerminal & ROM Uploads"
+        self.run_command(f"echo -e '{msg}'", "Web UI")
 
     def run_ota(self):
         import shlex
