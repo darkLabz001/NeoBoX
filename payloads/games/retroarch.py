@@ -56,7 +56,9 @@ setvol(sink, GAME_VOL)
 # Explicit configuration to ensure the virtual keyboard is used
 cfg_path = Path(tempfile.gettempdir()) / "neo_retroarch_hotkeys.cfg"
 cfg_content = [
-    'input_driver = "udev"',
+    'video_driver = "gl"',
+    'video_fullscreen = "true"',
+    'input_driver = "sdl2"',
     'input_enable_hotkey = "rshift"',
     'input_exit_emulator = "enter"',
     'input_player1_up = "up"',
@@ -78,7 +80,7 @@ cfg_path.write_text("\n".join(cfg_content) + "\n")
 
 # Start bridge as root
 bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "retroarch"])
-time.sleep(0.8)
+time.sleep(1.5)
 
 try:
     # Run retroarch with the hotkey override
