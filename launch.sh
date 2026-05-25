@@ -27,6 +27,13 @@ if [ -n "$hdmi_id" ]; then
   wpctl set-volume "$hdmi_id" 1.3 2>/dev/null || true
 fi
 
+# Pin a large audio buffer (quantum). The Pi 3B+ can't reliably keep the tiny
+# default buffer (~128 samples, requested by SDL/RetroArch) filled, so the HDMI
+# sink underruns constantly -> choppy/crackly audio device-wide (pw-top shows
+# climbing ERR/xruns). 2048 (~43ms latency, fine for a handheld) stops it cold.
+command -v pw-metadata >/dev/null && \
+  pw-metadata -n settings 0 clock.force-quantum 2048 >/dev/null 2>&1 || true
+
 # Ensure Web UI service is running
 sudo systemctl start neo-web
 
