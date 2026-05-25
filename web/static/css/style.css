@@ -2,16 +2,18 @@
     --bg: #06070d;
     --bg-alt: #0c1020;
     --accent: #b14bff;
+    --accent-glow: #b14bff88;
     --accent-dim: #7a36b3;
     --text: #eaf2ff;
     --text-dim: #7a86a8;
     --danger: #ff5470;
+    --success: #27e07d;
 }
 
 body {
     background-color: var(--bg);
     color: var(--text);
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     margin: 0;
     display: flex;
     flex-direction: column;
@@ -21,120 +23,334 @@ body {
 
 header {
     background-color: #05060c;
-    padding: 1rem 2rem;
+    padding: 0.5rem 1.5rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid var(--bg-alt);
-    box-shadow: 0 0 15px rgba(177, 75, 255, 0.2);
+    border-bottom: 2px solid var(--bg-alt);
+    box-shadow: 0 0 20px rgba(177, 75, 255, 0.15);
+    z-index: 100;
 }
 
 .logo {
+    color: white;
+    font-size: 1.4rem;
+    font-weight: 900;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+}
+
+.logo .highlight {
     color: var(--accent);
-    font-size: 1.5rem;
-    font-weight: bold;
-    letter-spacing: 2px;
-    text-shadow: 0 0 10px var(--accent);
+    text-shadow: 0 0 10px var(--accent-glow);
+}
+
+.system-mini-stats {
+    display: flex;
+    gap: 1.5rem;
+    background: #0d1424;
+    padding: 0.4rem 1rem;
+    border-radius: 20px;
+    border: 1px solid #1a2340;
+    font-size: 0.85rem;
+    font-family: monospace;
+}
+
+.stat-item i {
+    color: var(--accent);
+}
+
+nav {
+    display: flex;
+    gap: 0.5rem;
 }
 
 nav button {
-    background: transparent;
-    border: 1px solid var(--accent-dim);
-    color: var(--text);
-    padding: 0.5rem 1rem;
-    margin-left: 0.5rem;
+    background: #121a26;
+    border: 1px solid #1a2340;
+    color: var(--text-dim);
+    padding: 0.6rem 1rem;
     cursor: pointer;
     transition: all 0.2s;
+    border-radius: 4px;
+    font-size: 1.1rem;
 }
 
-nav button:hover {
-    background: var(--accent);
-    color: white;
+nav button:hover, nav button.active {
+    border-color: var(--accent);
+    color: var(--text);
+    background: #1a2340;
 }
 
 main {
     flex: 1;
     position: relative;
+    overflow-y: auto;
+    background: radial-gradient(circle at 50% 50%, #0c1020 0%, #06070d 100%);
 }
 
 section {
     display: none;
-    padding: 2rem;
-    height: calc(100% - 4rem);
+    padding: 1.5rem;
+    animation: fadeIn 0.3s ease-out;
 }
 
 section.active {
     display: block;
 }
 
-#terminal-section {
-    padding: 0;
-    height: 100%;
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-#terminal {
-    height: 100%;
-}
-
-.upload-container, .file-list-container {
-    background-color: var(--bg-alt);
+.card {
+    background-color: #0d1424aa;
+    backdrop-filter: blur(10px);
     padding: 1.5rem;
-    border-radius: 8px;
+    border-radius: 12px;
     border: 1px solid #1a2340;
-    margin-bottom: 2rem;
-    max-width: 600px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
 }
 
 h3 {
     color: var(--accent);
     margin-top: 0;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 1.2rem;
 }
 
-.input-group {
-    margin-bottom: 1rem;
+/* Dashboard */
+.grid-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
 }
 
-label {
-    display: block;
-    margin-bottom: 0.5rem;
+.stat-card {
+    text-align: center;
+}
+
+.gauge-container {
+    background: #06070d;
+    height: 12px;
+    border-radius: 6px;
+    margin: 1.5rem 0;
+    position: relative;
+    border: 1px solid #1a2340;
+    overflow: hidden;
+}
+
+.gauge-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    box-shadow: 0 0 10px var(--accent-glow);
+    transition: width 0.5s ease-in-out;
+}
+
+.gauge-container span {
+    position: absolute;
+    top: -22px;
+    right: 0;
+    font-size: 0.8rem;
+    font-family: monospace;
     color: var(--text-dim);
 }
 
-select, input[type="file"] {
-    width: 100%;
-    padding: 0.5rem;
-    background: var(--bg);
-    border: 1px solid var(--text-dim);
-    color: var(--text);
+.stat-big {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: white;
+    font-family: monospace;
+    margin: 0.5rem 0;
+    text-shadow: 0 0 15px var(--accent-glow);
 }
 
-.btn-primary {
-    background: var(--accent);
+/* Remote Layout */
+.remote-layout {
+    display: grid;
+    grid-template-areas: 
+        "shoulder action"
+        "dpad meta";
+    gap: 2rem;
+    justify-content: center;
+    max-width: 800px;
+    margin: 0 auto;
+    background: #0d1424;
+    padding: 3rem;
+    border-radius: 50px;
+    border: 4px solid #1a2340;
+}
+
+.dpad {
+    grid-area: dpad;
+    display: grid;
+    grid-template-areas: 
+        ". up ."
+        "left . right"
+        ". down .";
+    gap: 5px;
+}
+
+.btn-d {
+    width: 60px;
+    height: 60px;
+    background: #1a2340;
     border: none;
     color: white;
-    padding: 0.7rem 1.5rem;
+    font-size: 1.5rem;
     cursor: pointer;
+    border-radius: 8px;
+}
+
+#btn-UP { grid-area: up; }
+#btn-DOWN { grid-area: down; }
+#btn-LEFT { grid-area: left; }
+#btn-RIGHT { grid-area: right; }
+
+.action-buttons {
+    grid-area: action;
+    display: grid;
+    grid-template-areas: 
+        ". y ."
+        "x . b"
+        ". a .";
+    gap: 10px;
+}
+
+.btn-a {
+    width: 65px;
+    height: 65px;
+    border-radius: 50%;
+    border: none;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+
+.color-a { background: #33cc33; grid-area: a; }
+.color-b { background: #ff3333; grid-area: b; }
+.color-x { background: #3333ff; grid-area: x; }
+.color-y { background: #ffff33; color: black; grid-area: y; }
+
+.meta-buttons {
+    grid-area: meta;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: center;
+}
+
+.meta-buttons button {
+    background: #252d4a;
+    border: 1px solid #3d4a7a;
+    color: white;
+    padding: 0.5rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.8rem;
     font-weight: bold;
 }
 
-#rom-list {
+.shoulder-buttons {
+    grid-area: shoulder;
+    display: flex;
+    gap: 20px;
+}
+
+.shoulder-buttons button {
+    flex: 1;
+    background: #252d4a;
+    border: none;
+    color: white;
+    padding: 0.8rem;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+/* Files */
+.files-layout {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 1.5rem;
+}
+
+.filter-tabs {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid #1a2340;
+    padding-bottom: 5px;
+}
+
+.filter-tabs button {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+}
+
+.filter-tabs button.active {
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent);
+}
+
+#file-list {
     list-style: none;
     padding: 0;
 }
 
-#rom-list li {
-    padding: 0.5rem;
-    border-bottom: 1px solid #1a2340;
+#file-list li {
+    padding: 0.8rem;
+    background: #06070d;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    border: 1px solid #1a2340;
     display: flex;
     justify-content: space-between;
+    align-items: center;
 }
 
-#rom-list li span {
-    color: var(--text-dim);
-    font-size: 0.8rem;
+.btn-delete {
+    background: transparent;
+    border: none;
+    color: var(--danger);
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.2s;
 }
 
-#upload-status {
+.btn-delete:hover { opacity: 1; }
+
+/* Terminal */
+#terminal-section { padding: 0; height: 100%; }
+#terminal { height: 100%; }
+
+/* Form Elements */
+select, input[type="file"] {
+    width: 100%;
+    padding: 0.8rem;
+    background: #06070d;
+    border: 1px solid #1a2340;
+    color: var(--text);
+    border-radius: 6px;
+    box-sizing: border-box;
+}
+
+.btn-primary {
+    width: 100%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+    border: none;
+    color: white;
+    padding: 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
     margin-top: 1rem;
-    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }

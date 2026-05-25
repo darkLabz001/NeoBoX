@@ -34,8 +34,32 @@ class App:
         self.gpio = None
         if use_gpio:
             self._init_gpio()
+        
+        self._init_remote_listener()
 
         self.stack: list = []
+...
+    def _init_remote_listener(self):
+        """Start a UDP listener for remote actions (Web UI)."""
+        import socket
+        import threading
+        def _listen():
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.bind(("127.0.0.1", 9999))
+                while self.running:
+                    data, addr = sock.recvfrom(1024)
+                    action = data.decode().strip()
+                    if action:
+                        self.action_queue.put(action)
+            except Exception as e:
+                print(f"[remote] listener error: {e}")
+            finally:
+                sock.close()
+        
+        t = threading.Thread(target=_listen, daemon=True)
+        t.start()
+        print("[remote] listener started on port 9999")
         self.clock = pygame.time.Clock()
 
     # --- window ---------------------------------------------------------
