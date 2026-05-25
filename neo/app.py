@@ -171,28 +171,29 @@ class App:
             "echo && echo 'All dependencies installed.'"
         )
         self.run_command(cmd, "Deps")
-def show_web_info(self):
-    import socket
-    import subprocess
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        ip = "127.0.0.1"
 
-    # Check if process is alive
-    is_running = subprocess.call("pgrep -f 'web/server.py' > /dev/null", shell=True) == 0
-    status = "[RUNNING]" if is_running else "[NOT RUNNING]"
+    def show_web_info(self):
+        import socket
+        import subprocess
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            ip = "127.0.0.1"
 
-    msg = f"Web UI Status: {status}\\nAddress: http://{ip}:8000\\n\\n"
-    if not is_running:
-        msg += "DIAGNOSTIC: Server failed to start.\\nCheck 'Web Log' for errors."
-    else:
-        msg += "Terminal & ROM Uploads active."
+        # Check if process is alive
+        is_running = subprocess.call("pgrep -f 'web/server.py' > /dev/null", shell=True) == 0
+        status = "[RUNNING]" if is_running else "[NOT RUNNING]"
 
-    self.run_command(f"echo -e '{msg}'", "Web UI Status")
+        msg = f"Web UI Status: {status}\\nAddress: http://{ip}:8000\\n\\n"
+        if not is_running:
+            msg += "DIAGNOSTIC: Server failed to start.\\nCheck 'Web Log' for errors."
+        else:
+            msg += "Terminal & ROM Uploads active."
+
+        self.run_command(f"echo -e '{msg}'", "Web UI Status")
 
 
     def run_ota(self):
