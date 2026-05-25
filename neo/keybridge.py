@@ -48,6 +48,7 @@ def main():
     keymap = PROFILES.get(profile, PROFILES["doom"])
 
     cfg = json.loads(BUTTONS.read_text())
+    chip_path = "/dev/" + cfg.get("chip", "gpiochip0")
     pins = {a: int(p) for a, p in cfg["pins"].items()
             if int(p) >= 0 and a in keymap}
     pressed_level = 0 if cfg.get("active_low", True) else 1
@@ -57,7 +58,7 @@ def main():
     # Request lines in the SAME order we index get_values(), or buttons scramble.
     plist = sorted(pins.values())
     settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
-    req = gpiod.request_lines("/dev/gpiochip0", consumer="neobox-keybridge",
+    req = gpiod.request_lines(chip_path, consumer="neobox-keybridge",
                               config={p: settings for p in plist})
     action_of = {p: a for a, p in pins.items()}
 
