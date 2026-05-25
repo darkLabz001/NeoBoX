@@ -84,24 +84,11 @@ def setvol(sink, v):
         subprocess.run(["wpctl", "set-volume", sink, v], check=False)
 
 
-# RetroArch config: fullscreen, udev keyboard input matching the 'retroarch'
-# keybridge profile, and SELECT(hotkey)+START = exit.
-cfg = tempfile.NamedTemporaryFile("w", suffix=".cfg", delete=False)
-cfg.write("\n".join([
-    'video_fullscreen = "true"',
-    'input_driver = "udev"',
-    'menu_driver = "rgui"',
-    'input_enable_hotkey_key = "rshift"',   # SELECT
-    'input_exit_emulator_key = "enter"',    # +START
-    'input_player1_up_key = "up"', 'input_player1_down_key = "down"',
-    'input_player1_left_key = "left"', 'input_player1_right_key = "right"',
-    'input_player1_a_key = "x"', 'input_player1_b_key = "z"',
-    'input_player1_x_key = "s"', 'input_player1_y_key = "a"',
-    'input_player1_l_key = "q"', 'input_player1_r_key = "w"',
-    'input_player1_start_key = "enter"', 'input_player1_select_key = "rshift"',
-    'input_menu_toggle_key = "f1"',
-]) + "\n")
-cfg.close()
+# Write the HAT button mapping + udev input straight into the main RetroArch
+# config (reliable, unlike --appendconfig). Preserves any saved RA login.
+sys.path.insert(0, str(REPO))
+from neo import retroarch_cfg
+retroarch_cfg.apply()
 
 print(f"Launching PS1: {rom_path.name}")
 print("  D-pad=move  A/B/X/Y=face  L/R=bumpers  |  hold SELECT + START = exit")
@@ -110,7 +97,7 @@ setvol(sink, GAME_VOL)
 bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "retroarch"])
 time.sleep(0.8)
 try:
-    subprocess.run([engine, "-L", CORE, str(rom_path), "--appendconfig", cfg.name])
+    subprocess.run([engine, "-L", CORE, str(rom_path)])
 finally:
     try:
         bridge.send_signal(signal.SIGTERM)

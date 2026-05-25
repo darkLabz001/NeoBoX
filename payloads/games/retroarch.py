@@ -48,46 +48,30 @@ def setvol(sink, v):
     if sink: subprocess.run(["wpctl", "set-volume", sink, v], check=False)
 
 print("Launching RetroArch...")
-print("  Combo: SELECT (hold) + START to exit back to Neo")
+print("  D-pad=navigate  A=OK  B=back  |  Settings > Achievements to sign in")
+print("  Exit: hold SELECT + START   (panic: START+SELECT+L+R)")
+
+# Write button map + udev input + rgui menu + RetroAchievements into the main
+# config (reliable; preserves a saved RA login).
+sys.path.insert(0, str(REPO))
+from neo import retroarch_cfg
+retroarch_cfg.apply()
 
 sink = hdmi_sink()
 setvol(sink, GAME_VOL)
-
-# Use _key suffixes for keyboard mapping
-cfg_path = Path(tempfile.gettempdir()) / "neo_retroarch_hotkeys.cfg"
-cfg_content = [
-    'video_fullscreen = "true"',
-    'input_driver = "udev"',
-    'input_enable_hotkey_key = "rshift"',
-    'input_exit_emulator_key = "enter"',
-    'input_player1_up_key = "up"',
-    'input_player1_down_key = "down"',
-    'input_player1_left_key = "left"',
-    'input_player1_right_key = "right"',
-    'input_player1_a_key = "x"',
-    'input_player1_b_key = "z"',
-    'input_player1_x_key = "s"',
-    'input_player1_y_key = "a"',
-    'input_player1_l_key = "q"',
-    'input_player1_r_key = "w"',
-    'input_player1_start_key = "enter"',
-    'input_player1_select_key = "rshift"',
-]
-cfg_path.write_text("\n".join(cfg_content) + "\n")
 
 # Start bridge as root
 bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "retroarch"])
 time.sleep(1.0)
 
 try:
-    subprocess.run([engine, "--appendconfig", str(cfg_path)])
+    subprocess.run([engine])   # no content -> boots to the menu (for RA setup)
 finally:
     try:
         bridge.send_signal(signal.SIGTERM)
-    except Exception: pass
+    except Exception:
+        pass
     subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"], check=False)
-    if cfg_path.exists():
-        cfg_path.unlink()
     setvol(sink, UI_VOL)
 
 print("RetroArch exited.")
