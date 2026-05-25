@@ -28,6 +28,7 @@ if [ -n "$hdmi_id" ]; then
 fi
 
 # Start Web UI in background
+export PYTHONPATH=$PYTHONPATH:/usr/local/lib/python3.13/dist-packages
 python3 web/server.py > "$HOME/neo/web.log" 2>&1 &
 
 # Log persists across reboots (unlike /tmp) for debugging.

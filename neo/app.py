@@ -137,6 +137,7 @@ class App:
             cmd = (
                 "pkill -f 'web/server.py' || true; "
                 "sleep 1; "
+                "export PYTHONPATH=$PYTHONPATH:/usr/local/lib/python3.13/dist-packages; "
                 "python3 web/server.py > $HOME/neo/web.log 2>&1 & "
                 "echo 'Web UI restarted on port 8000. Check Web UI for address.'"
             )
