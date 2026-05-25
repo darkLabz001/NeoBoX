@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """GPIO -> uinput keyboard bridge so the HAT buttons drive external games.
 Run as root (needs /dev/uinput). Usage: keybridge.py [profile]
+
+Logs to <repo>/keybridge.log so input problems can be diagnosed without SSH
+(view it in the Web UI). Retries acquiring the GPIO lines in case NeoBoX is
+still releasing them.
 """
 from __future__ import annotations
 
 import json
+import os
 import signal
 import sys
 import time
@@ -14,7 +19,9 @@ import gpiod
 from gpiod.line import Bias, Direction, Value
 from evdev import UInput, ecodes as e
 
-BUTTONS = Path(__file__).resolve().parent.parent / "config" / "buttons.json"
+REPO = Path(__file__).resolve().parent.parent
+BUTTONS = REPO / "config" / "buttons.json"
+LOG = REPO / "keybridge.log"
 
 PROFILES = {
     "doom": {
@@ -32,15 +39,19 @@ PROFILES = {
         "L": e.KEY_Q, "R": e.KEY_W,
         "START": e.KEY_ENTER, "SELECT": e.KEY_RSHIFT,
     },
-    "ps1": {
-        "UP": e.KEY_UP, "DOWN": e.KEY_DOWN,
-        "LEFT": e.KEY_LEFT, "RIGHT": e.KEY_RIGHT,
-        "A": e.KEY_S, "B": e.KEY_D, "X": e.KEY_A, "Y": e.KEY_W,
-        "L": e.KEY_Q, "R": e.KEY_E,
-        "START": e.KEY_ENTER, "SELECT": e.KEY_TAB,
-        "EXIT": e.KEY_ESC,
-    },
 }
+PROFILES["ps1"] = PROFILES["retroarch"]   # PS1 runs in RetroArch (pcsx-rearmed)
+
+
+def log(msg):
+    line = f"{time.strftime('%H:%M:%S')} {msg}"
+    try:
+        with open(LOG, "a") as fh:
+            fh.write(line + "\n")
+    except Exception:
+        pass
+    print(line, flush=True)
+
 
 def main():
     profile = sys.argv[1] if len(sys.argv) > 1 else "doom"
@@ -51,26 +62,46 @@ def main():
     pins = {a: int(p) for a, p in cfg["pins"].items()
             if int(p) >= 0 and a in keymap}
     pressed_level = 0 if cfg.get("active_low", True) else 1
-
-    ui = UInput({e.EV_KEY: sorted(set(keymap.values()))}, name="RetroArch Keyboard")
-
     plist = sorted(pins.values())
-    settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
-    req = gpiod.request_lines(chip_path, consumer="neobox-keybridge",
-                              config={p: settings for p in plist})
     action_of = {p: a for a, p in pins.items()}
+
+    log(f"=== keybridge start: profile={profile} pins={pins} chip={chip_path} ===")
+
+    try:
+        ui = UInput({e.EV_KEY: sorted(set(keymap.values()))}, name="neobox-keypad")
+        log("uinput keyboard created OK")
+    except Exception as exc:
+        log(f"FATAL: uinput create failed: {exc}")
+        return
+
+    # Acquire GPIO lines, retrying while NeoBoX finishes releasing them.
+    settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
+    req = None
+    for attempt in range(40):
+        try:
+            req = gpiod.request_lines(chip_path, consumer="neobox-keybridge",
+                                      config={p: settings for p in plist})
+            log(f"GPIO lines acquired on attempt {attempt}")
+            break
+        except Exception as exc:
+            if attempt % 10 == 0:
+                log(f"GPIO busy, retrying ({attempt}): {exc}")
+            time.sleep(0.1)
+    if req is None:
+        log("FATAL: could not acquire GPIO lines after retries")
+        ui.close()
+        return
 
     run = {"v": True}
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: run.update(v=False))
 
-    # PANIC EXIT: holding START+SELECT+L+R together force-kills the game even if
-    # it has frozen (the bridge polls GPIO directly, so it never freezes).
     panic_pins = {pins[a] for a in ("START", "SELECT", "L", "R") if a in pins}
-    import os
     panic_hold = 0
+    presses = 0
 
     prev = {p: 1 for p in plist}
+    log("entering poll loop — press buttons now")
     while run["v"]:
         vals = req.get_values()
         pressed = set()
@@ -79,18 +110,34 @@ def main():
             if lvl == pressed_level:
                 pressed.add(p)
             if lvl != prev[p]:
-                ui.write(e.EV_KEY, keymap[action_of[p]], 1 if lvl == pressed_level else 0)
+                down = lvl == pressed_level
+                ui.write(e.EV_KEY, keymap[action_of[p]], 1 if down else 0)
                 ui.syn()
+                if down:
+                    presses += 1
+                    if presses <= 60:
+                        log(f"  press {action_of[p]} (BCM {p}) -> key {keymap[action_of[p]]}")
                 prev[p] = lvl
         if panic_pins and panic_pins <= pressed:
             panic_hold += 1
             if panic_hold > 40:   # ~0.3s held
+                log("PANIC combo -> killing game")
                 os.system("pkill -9 -f 'retroarch|chocolate-doom|mednafen|pcsx'")
                 break
         else:
             panic_hold = 0
         time.sleep(0.008)
+    log(f"keybridge exit ({presses} presses seen)")
+    try:
+        req.release()
+    except Exception:
+        pass
     ui.close()
 
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        log(f"FATAL: {exc}")
+        raise

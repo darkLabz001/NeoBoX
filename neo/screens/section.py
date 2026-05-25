@@ -43,6 +43,7 @@ class SectionScreen(Screen):
             {"name": "Volume", "glyph": "♪", "_action": "volume"},
             {"name": "Update", "glyph": "↡", "_action": "update"},
             {"name": "Deps", "glyph": "⚙", "_action": "deps"},
+            {"name": "Input Log", "glyph": "⌨", "_action": "input_log"},
             {"name": "About", "glyph": "i", "_action": "about"},
             {"name": "Power", "glyph": "⏻", "_action": "power"},
         ]

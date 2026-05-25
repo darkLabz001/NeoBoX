@@ -184,6 +184,9 @@ class App:
         elif action == "wifi":
             from .screens.wifi import WifiScreen
             self.push(WifiScreen(self))
+        elif action == "input_log":
+            self.run_command("tail -n 80 ~/neo/keybridge.log 2>/dev/null || echo 'no keybridge log yet'",
+                             "Input Log")
 
     def install_deps(self):
         """Scan all payloads for 'neo-apt' requirements and install them."""

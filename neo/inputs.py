@@ -167,3 +167,9 @@ class GpioBackend:
 
             prev_down = down
             time.sleep(self.poll_interval)
+
+        # Release the lines promptly so a game's keybridge can claim them.
+        try:
+            req.release()
+        except Exception:
+            pass
