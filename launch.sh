@@ -18,6 +18,14 @@ export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 # Game HAT panel is 480x320; its HDMI board only accepts standard modes and
 # scales to the panel. Feed it the smallest (640x480) for the sharpest result.
 command -v wlr-randr >/dev/null && wlr-randr --output HDMI-A-1 --mode 640x480 2>/dev/null || true
+
+# Route audio to HDMI (the HAT's speakers) at a usable level (amp needs boost).
+hdmi_id=$(wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' | grep -i hdmi | grep -oE '[0-9]+' | head -1)
+if [ -n "$hdmi_id" ]; then
+  wpctl set-default "$hdmi_id" 2>/dev/null || true
+  wpctl set-mute "$hdmi_id" 0 2>/dev/null || true
+  wpctl set-volume "$hdmi_id" 1.3 2>/dev/null || true
+fi
 sleep 1
 
 # Log persists across reboots (unlike /tmp) for debugging.

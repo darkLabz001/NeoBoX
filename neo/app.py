@@ -27,6 +27,8 @@ class App:
 
         self.statusbar = statusbar.StatusBar()
         self.keyboard = KeyboardBackend()
+        from .audiofx import Sfx
+        self.sfx = Sfx(enabled=(mode != "headless"))
         self.action_queue: queue.Queue[str] = queue.Queue()
         self.gpio = None
         if use_gpio:
@@ -107,6 +109,9 @@ class App:
             self.open_power_menu()
         elif action == "update":
             self.run_ota()
+        elif action == "volume":
+            from .screens.volume import VolumeScreen
+            self.push(VolumeScreen(self))
 
     def run_ota(self):
         import shlex
@@ -182,7 +187,12 @@ class App:
             x += lt.get_width() + 14
 
     # --- frame ----------------------------------------------------------
+    _SFX = {"UP": "move", "DOWN": "move", "LEFT": "move", "RIGHT": "move",
+            "L": "move", "R": "move", "A": "select", "B": "back",
+            "MENU": "select", "EXIT": "back"}
+
     def _dispatch(self, action: str):
+        self.sfx.play(self._SFX.get(action))
         scr = self.current
         # MENU/EXIT are global overlays unless the active screen is modal.
         if not getattr(scr, "modal", False):
@@ -253,6 +263,7 @@ class App:
         pygame.display.flip()
 
     def run(self):
+        self.sfx.play("boot")
         while self.running:
             dt = self.clock.tick(config.FPS) / 1000.0
             self._pump_events()
