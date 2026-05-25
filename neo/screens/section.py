@@ -37,6 +37,8 @@ class SectionScreen(Screen):
         self.items = [
             {"name": "WiFi", "glyph": "≋", "_action": "wifi"},
             {"name": "Web UI", "glyph": "🌐", "_action": "web_ui"},
+            {"name": "Web Log", "glyph": "🗒", "_action": "web_ui_log"},
+            {"name": "Reset Web", "glyph": "↻", "_action": "restart_web_ui"},
             {"name": "Theme", "glyph": "◑", "_action": "theme"},
             {"name": "Volume", "glyph": "♪", "_action": "volume"},
             {"name": "Update", "glyph": "↡", "_action": "update"},
