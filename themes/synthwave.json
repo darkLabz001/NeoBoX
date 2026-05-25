@@ -1,0 +1,26 @@
+{
+  "name": "synthwave",
+  "colors": {
+    "bg": "#1a1033",
+    "bg_alt": "#241447",
+    "bar": "#120a26",
+    "accent": "#ff2e97",
+    "accent2": "#2de2e6",
+    "text": "#f7f0ff",
+    "text_dim": "#9a7fc0",
+    "tile": "#2a1a52",
+    "tile_sel": "#3a2470",
+    "tile_border": "#ff2e97",
+    "danger": "#ff5470",
+    "warn": "#ffd166"
+  },
+  "fonts": {
+    "family": "dejavusansmono",
+    "family_bold": "dejavusansmono",
+    "ui": 15,
+    "small": 11,
+    "tile": 13,
+    "title": 20
+  },
+  "wallpaper": "gradient"
+}

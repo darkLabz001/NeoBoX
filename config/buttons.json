@@ -1,0 +1,25 @@
+{
+  "_comment": "Verified empirically with tools/gpio_capture_poll.py on the Waveshare Game HAT. MENU/EXIT pending (-1).",
+  "chip": "gpiochip0",
+  "active_low": true,
+  "pins": {
+    "UP": 5,
+    "DOWN": 6,
+    "LEFT": 13,
+    "RIGHT": 19,
+    "A": 26,
+    "B": 12,
+    "X": 16,
+    "Y": 20,
+    "START": 21,
+    "SELECT": 4,
+    "L": 23,
+    "R": 18,
+    "MENU": -1,
+    "EXIT": -1
+  },
+  "combos": {
+    "MENU": ["L", "R"],
+    "EXIT": ["START", "SELECT"]
+  }
+}

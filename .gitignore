@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Neo runtime
+neo.log
+NOAUTOSTART
+
+# Dev previews / local
+previews/
+.claude/
+.DS_Store

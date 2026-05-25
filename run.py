@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Entry point for the Neo firmware UI.
+
+Examples:
+  python3 run.py                         # windowed dev preview (2x) on HDMI
+  python3 run.py --mode fullscreen --gpio  # on the Game HAT
+  python3 run.py --screenshot out.png --actions RIGHT,RIGHT,A   # offscreen render
+"""
+import argparse
+import os
+
+
+def main():
+    p = argparse.ArgumentParser(description="Neo pentesting firmware UI")
+    p.add_argument("--mode", choices=["windowed", "fullscreen", "headless"], default="windowed")
+    p.add_argument("--scale", type=int, default=2)
+    p.add_argument("--theme", default=None)
+    p.add_argument("--gpio", action="store_true", help="read Game HAT buttons via GPIO")
+    p.add_argument("--screenshot", metavar="PATH", help="render one frame to PNG and exit")
+    p.add_argument("--actions", default="",
+                   help="comma-separated actions dispatched before the screenshot")
+    p.add_argument("--settle", type=int, default=12,
+                   help="frames to render before saving (lets async output arrive)")
+    args = p.parse_args()
+
+    if args.screenshot:
+        args.mode = "headless"
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+        os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
+    import pygame
+    pygame.init()
+    pygame.font.init()
+
+    from neo.app import App
+    from neo.screens.home import HomeScreen
+
+    kwargs = {"theme_name": args.theme} if args.theme else {}
+    app = App(mode=args.mode, scale=args.scale, use_gpio=args.gpio, **kwargs)
+    app.push(HomeScreen(app))
+
+    if args.screenshot:
+        acts = [a.strip().upper() for a in args.actions.split(",") if a.strip()]
+        app.snapshot(args.screenshot, acts, settle=args.settle)
+    else:
+        app.run()
+
+
+if __name__ == "__main__":
+    main()

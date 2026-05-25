@@ -1,0 +1,26 @@
+{
+  "name": "neobox",
+  "colors": {
+    "bg": "#06070d",
+    "bg_alt": "#0c1020",
+    "bar": "#05060c",
+    "accent": "#b14bff",
+    "accent2": "#2de2ff",
+    "text": "#eaf2ff",
+    "text_dim": "#7a86a8",
+    "tile": "#0d142488",
+    "tile_sel": "#1a2340",
+    "tile_border": "#b14bff",
+    "danger": "#ff5470",
+    "warn": "#ffb454"
+  },
+  "fonts": {
+    "family": "dejavusansmono",
+    "family_bold": "dejavusansmono",
+    "ui": 15,
+    "small": 11,
+    "tile": 13,
+    "title": 20
+  },
+  "wallpaper": "neobox"
+}

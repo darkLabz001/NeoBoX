@@ -1,0 +1,14 @@
+{
+  "sections": [
+    {"name": "Recon",     "id": "recon",     "icon": "recon"},
+    {"name": "WiFi",      "id": "wifi",      "icon": "wifi"},
+    {"name": "Bluetooth", "id": "bluetooth", "icon": "bluetooth"},
+    {"name": "Network",   "id": "network",   "icon": "network"},
+    {"name": "Web",       "id": "web",       "icon": "web"},
+    {"name": "Passwords", "id": "passwords", "icon": "passwords"},
+    {"name": "Social",    "id": "social",    "icon": "social"},
+    {"name": "Games",     "id": "games",     "icon": "games"},
+    {"name": "System",    "id": "system",    "icon": "system"},
+    {"name": "Settings",  "id": "settings",  "icon": "settings", "builtin": true}
+  ]
+}

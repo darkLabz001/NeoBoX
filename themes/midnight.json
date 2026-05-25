@@ -1,0 +1,26 @@
+{
+  "name": "midnight",
+  "colors": {
+    "bg": "#0a0e14",
+    "bg_alt": "#0f1622",
+    "bar": "#05080d",
+    "accent": "#27e07d",
+    "accent2": "#21c7e0",
+    "text": "#e6edf3",
+    "text_dim": "#65788c",
+    "tile": "#121a26",
+    "tile_sel": "#19283a",
+    "tile_border": "#27e07d",
+    "danger": "#ff5470",
+    "warn": "#ffb454"
+  },
+  "fonts": {
+    "family": "dejavusansmono",
+    "family_bold": "dejavusansmono",
+    "ui": 15,
+    "small": 11,
+    "tile": 13,
+    "title": 20
+  },
+  "wallpaper": "gradient"
+}
