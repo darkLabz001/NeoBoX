@@ -3,6 +3,7 @@
 # neo-desc: Freedoom — play with the HAT buttons
 # neo-icon: games
 # neo-input: gpio
+# neo-apt: chocolate-doom, freedoom
 """Launch Freedoom with a GPIO->keyboard bridge so the HAT controls it.
 Controls: D-pad move | A fire | B use | X run | L/R strafe | Start menu | Select 'y'."""
 import os

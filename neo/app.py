@@ -129,12 +129,36 @@ class App:
             self.open_power_menu()
         elif action == "update":
             self.run_ota()
+        elif action == "deps":
+            self.install_deps()
         elif action == "volume":
             from .screens.volume import VolumeScreen
             self.push(VolumeScreen(self))
         elif action == "wifi":
             from .screens.wifi import WifiScreen
             self.push(WifiScreen(self))
+
+    def install_deps(self):
+        """Scan all payloads for 'neo-apt' requirements and install them."""
+        from . import payloads as payloads_mod
+        all_p = payloads_mod.list_all_payloads()
+        packages = set()
+        for p in all_p:
+            for pkg in p.get("apt", []):
+                packages.add(pkg)
+
+        if not packages:
+            self.run_command("echo 'No specific dependencies found in payloads.'", "Deps")
+            return
+
+        pkg_list = " ".join(sorted(packages))
+        cmd = (
+            "echo 'Updating package list...' && sudo apt update && "
+            f"echo 'Installing: {pkg_list}' && "
+            f"sudo apt install -y {pkg_list} && "
+            "echo && echo 'All dependencies installed.'"
+        )
+        self.run_command(cmd, "Deps")
 
     def run_ota(self):
         import shlex

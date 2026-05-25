@@ -3,6 +3,7 @@
 # neo-desc: Multi-system emulator
 # neo-icon: games
 # neo-input: gpio
+# neo-apt: retroarch, retroarch-assets, libretro-core-info
 """Launch RetroArch with a GPIO->keyboard bridge.
 Controls: D-pad move | A,B,X,Y buttons | L/R bumpers | Start+Select to Exit."""
 import os

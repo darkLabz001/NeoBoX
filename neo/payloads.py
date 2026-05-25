@@ -35,7 +35,7 @@ def prettify(stem: str) -> str:
 
 def parse_meta(path: Path) -> dict:
     meta = {"path": str(path), "name": prettify(path.stem),
-            "desc": "", "needs": [], "icon": None, "input": None}
+            "desc": "", "needs": [], "icon": None, "input": None, "apt": []}
     try:
         with open(path, "r", errors="replace") as fh:
             for _ in range(40):
@@ -56,6 +56,8 @@ def parse_meta(path: Path) -> dict:
                     meta["needs"] = [x.strip() for x in val.split(",") if x.strip()]
                 elif key == "input":
                     meta["input"] = val.strip().lower()
+                elif key == "apt":
+                    meta["apt"] = [x.strip() for x in val.split(",") if x.strip()]
     except Exception:
         pass
     return meta
@@ -70,6 +72,17 @@ def list_payloads(section_id: str) -> list[dict]:
         if f.name.startswith("_"):
             continue
         out.append(parse_meta(f))
+    return out
+
+
+def list_all_payloads() -> list[dict]:
+    """Gather every payload across all sections."""
+    out = []
+    if not config.PAYLOADS_DIR.is_dir():
+        return []
+    for d in sorted(config.PAYLOADS_DIR.iterdir()):
+        if d.is_dir() and not d.name.startswith("."):
+            out.extend(list_payloads(d.name))
     return out
 
 
