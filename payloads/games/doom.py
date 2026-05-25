@@ -55,7 +55,7 @@ def setvol(sink, v):
 
 
 print("Launching DOOM…")
-print("  D-pad=move  A=fire  B=use  X=run  L/R=strafe  Start=menu  Select=y")
+print("  Joy=move/strafe  L/R=turn  A=fire  B=use  X=run  Start=menu  Select=enter  Y=yes")
 sink = hdmi_sink()
 setvol(sink, GAME_VOL)
 bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "doom"])

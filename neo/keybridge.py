@@ -6,9 +6,9 @@ NeoBoX releases its own GPIO hold before starting this, and kills it after the
 game exits. Reads the verified pin map from config/buttons.json.
 
 DOOM controls:
-  D-pad = move/menu   A = fire(Ctrl)   B = use(Space)   X = run(Shift)
-  Y = enter/select    Start = menu(Esc)   Select = 'y' (quit-confirm)
-  L/R = strafe (, .)
+  Joystick = move: up/down forward/back, left/right STRAFE
+  L/R = turn left/right    A = fire(Ctrl)   B = use(Space)   X = run(Shift)
+  Start = menu(Esc)   Select = select(Enter)   Y = 'y' (confirm prompts)
 """
 from __future__ import annotations
 
@@ -26,9 +26,12 @@ BUTTONS = Path(__file__).resolve().parent.parent / "config" / "buttons.json"
 
 PROFILES = {
     "doom": {
-        "UP": e.KEY_UP, "DOWN": e.KEY_DOWN, "LEFT": e.KEY_LEFT, "RIGHT": e.KEY_RIGHT,
-        "A": e.KEY_LEFTCTRL, "B": e.KEY_SPACE, "X": e.KEY_LEFTSHIFT, "Y": e.KEY_ENTER,
-        "START": e.KEY_ESC, "SELECT": e.KEY_Y, "L": e.KEY_COMMA, "R": e.KEY_DOT,
+        "UP": e.KEY_UP, "DOWN": e.KEY_DOWN,         # forward / back
+        "LEFT": e.KEY_COMMA, "RIGHT": e.KEY_DOT,    # strafe left / right
+        "L": e.KEY_LEFT, "R": e.KEY_RIGHT,          # turn left / right
+        "A": e.KEY_LEFTCTRL, "B": e.KEY_SPACE, "X": e.KEY_LEFTSHIFT,
+        "Y": e.KEY_Y,                               # 'y' for prompts
+        "START": e.KEY_ESC, "SELECT": e.KEY_ENTER,  # menu / select
     },
 }
 
