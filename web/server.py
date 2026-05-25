@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import eventlet
+eventlet.monkey_patch()
+
 import os
 import pty
 import subprocess
@@ -13,7 +16,7 @@ from flask_socketio import SocketIO
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'neobox-secret!'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,27 +35,32 @@ class TerminalSession:
         if self.child_pid:
             return
         
-        (self.child_pid, self.fd) = pty.fork()
-        if self.child_pid == 0:
-            # Child process
-            os.environ["TERM"] = "xterm-256color"
-            os.environ["SHELL"] = "/bin/bash"
-            os.chdir(str(BASE_DIR))
-            os.execvp("/bin/bash", ["/bin/bash"])
-        else:
-            # Parent process
-            socketio.start_background_task(target=self.read_output)
+        try:
+            (self.child_pid, self.fd) = pty.fork()
+            if self.child_pid == 0:
+                # Child process
+                os.environ["TERM"] = "xterm-256color"
+                os.environ["SHELL"] = "/bin/bash"
+                os.chdir(str(BASE_DIR))
+                os.execvp("/bin/bash", ["/bin/bash"])
+            else:
+                # Parent process
+                socketio.start_background_task(target=self.read_output)
+        except Exception as e:
+            print(f"Error spawning terminal: {e}")
 
     def read_output(self):
         max_read_bytes = 1024 * 20
         while self.fd:
             socketio.sleep(0.01)
             if self.fd:
-                timeout_sec = 0
-                r, w, e = select.select([self.fd], [], [], timeout_sec)
+                r, w, e = select.select([self.fd], [], [], 0)
                 if self.fd in r:
-                    output = os.read(self.fd, max_read_bytes).decode(errors='replace')
-                    socketio.emit("terminal_output", {"data": output}, namespace="/terminal")
+                    try:
+                        output = os.read(self.fd, max_read_bytes).decode(errors='replace')
+                        socketio.emit("terminal_output", {"data": output}, namespace="/terminal")
+                    except Exception:
+                        break
 
     def write_input(self, data):
         if self.fd:
@@ -93,10 +101,9 @@ def upload_file():
         return jsonify({"error": "No selected file"}), 400
     
     target_type = request.form.get('type', 'rom')
-    filename = shlex.quote(file.filename).strip("'") # basic sanitization
+    filename = shlex.quote(file.filename).strip("'")
     
     if target_type == 'payload':
-        # payloads need to go into a specific section
         section = request.form.get('section', 'custom')
         save_path = PAYLOAD_DIR / section / filename
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,7 +112,7 @@ def upload_file():
 
     file.save(str(save_path))
     if target_type == 'payload':
-        save_path.chmod(0o755) # make payloads executable
+        save_path.chmod(0o755)
 
     return jsonify({"success": True, "path": str(save_path)})
 
@@ -123,4 +130,5 @@ def terminal_resize(data):
     term.resize(data["rows"], data["cols"])
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    print("Starting NeoBox Web UI on port 8080...")
+    socketio.run(app, host='0.0.0.0', port=8080, debug=False, log_output=True)

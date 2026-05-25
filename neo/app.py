@@ -176,7 +176,7 @@ class App:
         except Exception:
             ip = "127.0.0.1"
         
-        msg = f"Web UI is running at:\\nhttp://{ip}:5000\\n\\nTerminal & ROM Uploads"
+        msg = f"Web UI is running at:\\nhttp://{ip}:8080\\n\\nTerminal & ROM Uploads"
         self.run_command(f"echo -e '{msg}'", "Web UI")
 
     def run_ota(self):
