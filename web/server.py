@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
-import eventlet
-eventlet.monkey_patch()
+import sys
+
+# Try to use eventlet if available, but don't crash if it's not
+try:
+    import eventlet
+    eventlet.monkey_patch()
+    async_mode = 'eventlet'
+except ImportError:
+    async_mode = 'threading'
 
 import os
 import pty
@@ -14,9 +21,12 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 
+print(f"--- NeoBox Web UI Starting (Mode: {async_mode}) ---")
+sys.stdout.flush()
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'neobox-secret!'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode=async_mode)
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,13 +48,11 @@ class TerminalSession:
         try:
             (self.child_pid, self.fd) = pty.fork()
             if self.child_pid == 0:
-                # Child process
                 os.environ["TERM"] = "xterm-256color"
                 os.environ["SHELL"] = "/bin/bash"
                 os.chdir(str(BASE_DIR))
                 os.execvp("/bin/bash", ["/bin/bash"])
             else:
-                # Parent process
                 socketio.start_background_task(target=self.read_output)
         except Exception as e:
             print(f"Error spawning terminal: {e}")
@@ -104,8 +112,7 @@ def upload_file():
     filename = shlex.quote(file.filename).strip("'")
     
     if target_type == 'payload':
-        section = request.form.get('section', 'custom')
-        save_path = PAYLOAD_DIR / section / filename
+        save_path = PAYLOAD_DIR / "custom" / filename
         save_path.parent.mkdir(parents=True, exist_ok=True)
     else:
         save_path = ROM_DIR / filename
@@ -119,7 +126,6 @@ def upload_file():
 @socketio.on("connect", namespace="/terminal")
 def connect():
     term.spawn()
-    print("Terminal client connected")
 
 @socketio.on("terminal_input", namespace="/terminal")
 def terminal_input(data):
@@ -130,5 +136,10 @@ def terminal_resize(data):
     term.resize(data["rows"], data["cols"])
 
 if __name__ == '__main__':
-    print("Starting NeoBox Web UI on port 8080...")
-    socketio.run(app, host='0.0.0.0', port=8080, debug=False, log_output=True)
+    print("Binding to 0.0.0.0:8080...")
+    sys.stdout.flush()
+    try:
+        socketio.run(app, host='0.0.0.0', port=8080, debug=False)
+    except Exception as e:
+        print(f"CRITICAL STARTUP ERROR: {e}")
+        sys.stdout.flush()
