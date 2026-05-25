@@ -33,6 +33,13 @@ PROFILES = {
         "Y": e.KEY_Y,                               # 'y' for prompts
         "START": e.KEY_ESC, "SELECT": e.KEY_ENTER,  # menu / select
     },
+    "retroarch": {
+        "UP": e.KEY_UP, "DOWN": e.KEY_DOWN,
+        "LEFT": e.KEY_LEFT, "RIGHT": e.KEY_RIGHT,
+        "A": e.KEY_X, "B": e.KEY_Z, "X": e.KEY_S, "Y": e.KEY_A,
+        "L": e.KEY_Q, "R": e.KEY_W,
+        "START": e.KEY_ENTER, "SELECT": e.KEY_RSHIFT,
+    },
 }
 
 
@@ -47,10 +54,11 @@ def main():
 
     ui = UInput({e.EV_KEY: sorted(set(keymap.values()))}, name="neobox-gamepad")
 
+    # Request lines in the SAME order we index get_values(), or buttons scramble.
+    plist = sorted(pins.values())
     settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
     req = gpiod.request_lines("/dev/gpiochip0", consumer="neobox-keybridge",
-                              config={p: settings for p in pins.values()})
-    plist = sorted(pins.values())
+                              config={p: settings for p in plist})
     action_of = {p: a for a, p in pins.items()}
 
     run = {"v": True}
