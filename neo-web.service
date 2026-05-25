@@ -1,0 +1,14 @@
+[Unit]
+Description=NeoBox Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=kali
+WorkingDirectory=/home/kali/neo
+Environment=PYTHONPATH=/usr/local/lib/python3.13/dist-packages
+ExecStart=/usr/bin/python3 /home/kali/neo/web/server.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

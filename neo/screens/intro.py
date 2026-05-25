@@ -85,6 +85,9 @@ class IntroScreen(Screen):
         if self.t >= T_END:
             self._finish()
 
+    def is_animating(self):
+        return not self.done
+
     def _finish(self):
         if self.done:
             return

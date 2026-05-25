@@ -70,6 +70,9 @@ class SectionScreen(Screen):
         if self.grid:
             self.grid.update(dt)
 
+    def is_animating(self):
+        return self.grid is not None and abs(self.grid.scroll_x - self.grid.target_x) > 0.5
+
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
         if self.grid:

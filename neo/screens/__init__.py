@@ -19,6 +19,10 @@ class Screen:
     def update(self, dt: float):
         pass
 
+    def is_animating(self) -> bool:
+        """Return True if this screen needs continuous redraws (animation/spinner)."""
+        return False
+
     def draw(self, surf: pygame.Surface, theme):
         pass
 

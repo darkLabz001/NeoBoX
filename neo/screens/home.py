@@ -44,6 +44,9 @@ class HomeScreen(Screen):
     def update(self, dt: float):
         self.grid.update(dt)
 
+    def is_animating(self):
+        return abs(self.grid.scroll_x - self.grid.target_x) > 0.5
+
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
         self.grid.draw(surf, theme)

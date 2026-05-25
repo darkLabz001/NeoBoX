@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue
+import time
 
 import pygame
 
@@ -298,6 +299,7 @@ class App:
             "MENU": "select", "EXIT": "back"}
 
     def _dispatch(self, action: str):
+        self._dirty = True
         self.sfx.play(self._SFX.get(action))
         scr = self.current
         # MENU/EXIT are global overlays unless the active screen is modal.
@@ -357,9 +359,9 @@ class App:
         win_w, win_h = self.window.get_size()
         if self.mode == "fullscreen":
             # Stretch to fill the panel. On the Game HAT the HDMI board rescales
-            # to the 480x320 panel, so filling here yields a correct full-screen
-            # image (no letterbox bars).
-            scaled = pygame.transform.smoothscale(self.logical, (win_w, win_h))
+            # to the 480x320 panel anyway, so a fast (nearest) scale is fine here
+            # and far cheaper than smoothscale on the Pi 3B+ (keeps CPU/audio sane).
+            scaled = pygame.transform.scale(self.logical, (win_w, win_h))
             self.window.blit(scaled, (0, 0))
         else:
             scale = min(win_w / config.SCREEN_W, win_h / config.SCREEN_H)
@@ -370,11 +372,21 @@ class App:
         pygame.display.flip()
 
     def run(self):
+        # Render on demand: only redraw when something changed, an animation is
+        # running, or ~1/s for the clock. Keeps the Pi 3B+ near-idle on static
+        # screens so pipewire never underruns (no system-wide audio crackle).
+        self._dirty = True
+        last_render = 0.0
         while self.running:
-            dt = self.clock.tick(config.FPS) / 1000.0
+            self.clock.tick(config.FPS)
             self._pump_events()
-            self.render(dt)
-            self.present()
+            now = time.monotonic()
+            animating = getattr(self.current, "is_animating", lambda: False)()
+            if self._dirty or animating or (now - last_render) >= 0.5:
+                self.render(1.0 / config.FPS)
+                self.present()
+                self._dirty = False
+                last_render = now
         if self.gpio:
             self.gpio.stop()
         pygame.quit()

@@ -40,6 +40,9 @@ class ConsoleScreen(Screen):
     def _on_line(self, line: str):
         self.lines.append(line)
 
+    def is_animating(self):
+        return self.status == "running"
+
     def _on_exit(self, code: int):
         self.exit_code = code
         self.status = "done"

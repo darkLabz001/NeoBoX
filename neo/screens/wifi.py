@@ -108,6 +108,9 @@ class WifiScreen(Screen):
     def update(self, dt):
         pass
 
+    def is_animating(self):
+        return self.state in ("scanning", "connecting")
+
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
         self.app.statusbar.draw(surf, theme, self.title)
