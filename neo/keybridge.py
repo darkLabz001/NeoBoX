@@ -37,7 +37,7 @@ PROFILES = {
         "LEFT": e.KEY_LEFT, "RIGHT": e.KEY_RIGHT,
         "A": e.KEY_X, "B": e.KEY_Z, "X": e.KEY_S, "Y": e.KEY_A,
         "L": e.KEY_Q, "R": e.KEY_W,
-        "START": e.KEY_ENTER, "SELECT": e.KEY_RSHIFT,
+        "START": e.KEY_ENTER, "SELECT": e.KEY_RIGHTSHIFT,
     },
 }
 PROFILES["ps1"] = PROFILES["retroarch"]   # PS1 runs in RetroArch (pcsx-rearmed)
