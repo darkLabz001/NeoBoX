@@ -6,10 +6,15 @@ keys (e.g. a saved RetroAchievements login) are preserved.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 CFG = Path.home() / ".config" / "retroarch" / "retroarch.cfg"
+# RetroAchievements login is read from a device-local file (NOT committed —
+# this repo is public). RetroArch logs in with it and caches a token. Format:
+#   {"username": "...", "password": "..."}   (or {"username":..., "token":...})
+CHEEVOS_LOCAL = Path.home() / ".neo_cheevos"
 
 # HAT buttons -> RetroArch. These keyboard keys match the keybridge 'retroarch'
 # profile (A=x B=z X=s Y=a L=q R=w, Start=enter, Select=rshift, dpad=arrows).
@@ -41,8 +46,25 @@ BASE = {
 }
 
 
+def _cheevos_login() -> dict:
+    """RetroAchievements creds from the device-local file (empty if absent)."""
+    try:
+        d = json.loads(CHEEVOS_LOCAL.read_text())
+    except Exception:
+        return {}
+    out = {}
+    if d.get("username"):
+        out["cheevos_username"] = d["username"]
+    if d.get("token"):
+        out["cheevos_token"] = d["token"]
+    if d.get("password"):
+        out["cheevos_password"] = d["password"]
+    return out
+
+
 def apply(extra: dict | None = None):
     settings = dict(BASE)
+    settings.update(_cheevos_login())   # inject RA login from the local file
     if extra:
         settings.update(extra)
     CFG.parent.mkdir(parents=True, exist_ok=True)
