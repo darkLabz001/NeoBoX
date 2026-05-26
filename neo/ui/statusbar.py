@@ -50,8 +50,8 @@ class StatusBar:
             t = font.render(title.upper(), True, text)
             surf.blit(t, (22, HEIGHT // 2 - t.get_height() // 2))
 
-        # Right: clock then wifi
-        clock = time.strftime("%H:%M")
+        # Right: clock then wifi (12-hour, e.g. "9:35 PM")
+        clock = time.strftime("%I:%M %p").lstrip("0")
         ct = font.render(clock, True, text)
         surf.blit(ct, (w - ct.get_width() - 8, HEIGHT // 2 - ct.get_height() // 2))
 
