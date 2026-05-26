@@ -1,4 +1,4 @@
-"""CCTV Gallery screen with improved thumbnail loading and noise-filtering."""
+"""CCTV Gallery screen — Robust Integrated Version."""
 from __future__ import annotations
 
 import json
@@ -12,7 +12,6 @@ from queue import Queue
 
 import pygame
 import requests
-# Suppress warnings in the UI process too
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -41,34 +40,26 @@ class CctvGalleryScreen(Screen):
         self.results = []
         def worker():
             try:
+                # Use a longer timeout and capture output
                 cmd = ["python3", str(config.PAYLOADS_DIR / "recon" / "cctv_viewer.py"), "--list"]
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 
-                if proc.returncode != 0:
-                    self.error = f"Backend error ({proc.returncode})"
-                    return
-
-                # ROBUST PARSING: Find the start of the JSON list
+                # Robust extraction: ignore everything before the first [ and after the last ]
                 out = proc.stdout.strip()
-                start_idx = out.find("[")
-                if start_idx != -1:
-                    json_str = out[start_idx:]
-                    try:
-                        data = json.loads(json_str)
-                        self.results = data
-                        if not self.results:
-                            self.error = "No cameras found"
-                        else:
-                            for item in self.results:
-                                turl = item.get("thumb")
-                                if turl and turl.startswith("http"):
-                                    self._request_thumb(turl)
-                    except json.JSONDecodeError:
-                        self.error = "JSON parse failed"
+                start = out.find("[")
+                end = out.rfind("]")
+                if start != -1 and end != -1:
+                    json_str = out[start:end+1]
+                    data = json.loads(json_str)
+                    self.results = data
+                    for item in self.results:
+                        turl = item.get("thumb")
+                        if turl and turl.startswith("http"):
+                            self._request_thumb(turl)
                 else:
-                    self.error = "Invalid backend output"
+                    self.error = "No camera data found"
             except Exception as e:
-                self.error = f"Crash: {str(e)[:20]}"
+                self.error = "Connection timeout"
             finally:
                 self.loading = False
         threading.Thread(target=worker, daemon=True).start()
@@ -76,30 +67,22 @@ class CctvGalleryScreen(Screen):
     def _request_thumb(self, url):
         h = hashlib.md5(url.encode()).hexdigest()
         cache_path = YT_CACHE / f"cctv_{h}.jpg"
-        
         def load():
             try:
                 if cache_path.exists() and (time.time() - cache_path.stat().st_mtime < 3600):
-                    with open(cache_path, "rb") as f:
-                        data = f.read()
+                    with open(cache_path, "rb") as f: data = f.read()
                 else:
-                    headers = {'User-Agent': 'Mozilla/5.0'}
-                    resp = requests.get(url, timeout=8, headers=headers, verify=False)
-                    if resp.status_code == 200:
-                        data = resp.content
-                        with open(cache_path, "wb") as f:
-                            f.write(data)
+                    r = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'}, verify=False)
+                    if r.status_code == 200:
+                        data = r.content
+                        with open(cache_path, "wb") as f: f.write(data)
                     else: return
-                
                 self._thumb_queue.put((url, data))
             except: pass
         threading.Thread(target=load, daemon=True).start()
 
     def on_action(self, action: str):
         if self.loading: return
-        if action == "X":
-            self._load_data()
-            return
         if action == "UP":
             if self.results: 
                 self.index = (self.index - 1) % len(self.results)
@@ -116,10 +99,8 @@ class CctvGalleryScreen(Screen):
             self.app.pop()
 
     def _ensure_visible(self):
-        if self.index < self.target_scroll:
-            self.target_scroll = self.index
-        elif self.index >= self.target_scroll + 5:
-            self.target_scroll = self.index - 4
+        if self.index < self.target_scroll: self.target_scroll = self.index
+        elif self.index >= self.target_scroll + 5: self.target_scroll = self.index - 4
 
     def _get_meta(self):
         return {
@@ -134,8 +115,8 @@ class CctvGalleryScreen(Screen):
             url, data = self._thumb_queue.get()
             try:
                 img = pygame.image.load(io.BytesIO(data)).convert()
-                img = pygame.transform.smoothscale(img, (80, 45))
-                self.thumbs[url] = img
+                # Use a cleaner scale for previews
+                self.thumbs[url] = pygame.transform.smoothscale(img, (80, 45))
             except: pass
 
     def is_animating(self):
@@ -161,6 +142,7 @@ class CctvGalleryScreen(Screen):
             txt = font.render(f"Error: {self.error}", True, theme.color("danger"))
             surf.blit(txt, (config.SCREEN_W // 2 - txt.get_width() // 2, ry + 40))
         elif self.results:
+            # Scrollbar
             if len(self.results) > 5:
                 pygame.draw.rect(surf, theme.color("tile"), (config.SCREEN_W - 8, ry, 4, area.height), border_radius=2)
                 scroll_h = max(10, (5 / len(self.results)) * area.height)
@@ -177,32 +159,25 @@ class CctvGalleryScreen(Screen):
                 sel = (i == self.index)
                 bg = theme.color("tile_sel") if sel else theme.color("tile")
                 pygame.draw.rect(surf, bg, rect, border_radius=6)
-                if sel:
-                    pygame.draw.rect(surf, accent, rect, width=1, border_radius=6)
+                if sel: pygame.draw.rect(surf, accent, rect, width=1, border_radius=6)
                 
                 turl = item.get("thumb")
                 if turl in self.thumbs:
                     surf.blit(self.thumbs[turl], (rect.x + 4, rect.y + 1))
                 else:
-                    pygame.draw.rect(surf, theme.color("bg"), (rect.x + 4, rect.y + 3, 80, 40), border_radius=4)
-                    icon_name = "recon"
-                    icon = assets.load_icon_image(icon_name, 20)
-                    if icon:
-                        surf.blit(icon, (rect.x + 34, rect.y + 13))
+                    # Clearer fallback box
+                    pygame.draw.rect(surf, (20, 20, 30), (rect.x + 4, rect.y + 3, 80, 40), border_radius=4)
+                    icon = assets.load_icon_image("recon", 16)
+                    if icon: surf.blit(icon, (rect.x + 36, rect.y + 15))
 
                 name = item["name"]
                 if len(name) > 42: name = name[:39] + "..."
-                tsurf = small.render(name, True, text)
-                surf.blit(tsurf, (rect.x + 90, rect.y + 4))
+                surf.blit(small.render(name, True, text), (rect.x + 90, rect.y + 4))
                 
                 ctype = item.get('type', 'hls').upper()
-                info = f"{ctype} | LIVE"
-                isurf = small.render(info, True, dim)
-                surf.blit(isurf, (rect.x + 90, rect.y + 24))
+                surf.blit(small.render(f"LIVE | {ctype}", True, dim), (rect.x + 90, rect.y + 24))
             
             surf.set_clip(prev_clip)
 
     def hints(self):
-        h = [("B", "back"), ("X", "refresh")]
-        if self.results: h.append(("A", "view"))
-        return h
+        return [("B", "back"), ("A", "view"), ("↑↓", "nav")]
