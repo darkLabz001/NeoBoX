@@ -1,260 +1,69 @@
 #!/usr/bin/env python3
 # neo-name: CCTV Viewer
-# neo-desc: Live CCTV aggregator (FL511, Skyline, Opentopia)
+# neo-desc: Live traffic cameras (Arlington VA, direct HLS)
 # neo-icon: recon
 # neo-screen: cctv
-# neo-apt: python3-requests, python3-pil, mpv, yt-dlp
+# neo-apt: mpv, ffmpeg
 # neo-input: gpio
+"""Live CCTV gallery. The custom screen (neo/screens/cctv.py) lists the cams and
+renders ffmpeg-generated previews; selecting one streams its HLS feed in mpv.
 
+These are public Arlington County, VA traffic cameras (direct .m3u8 — no
+scraping / yt-dlp), which is what makes both the previews and playback reliable.
+
+Usage: --list  -> prints the camera JSON;   <m3u8-url> <name>  -> plays a feed."""
 import os
-
-# Suppress pygame welcome message
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-
 import sys
 import json
-import time
-import threading
-import io
-import re
-from datetime import datetime
+import signal
+import subprocess
 from pathlib import Path
 
-import requests
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
-requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
-# Configuration
-WIDTH, HEIGHT = 480, 320
-ZOOM_LEVELS = [1, 2, 4, 8]
-CHUNK_SIZE = 1024 * 32
 REPO = Path(__file__).resolve().parents[2]
 BRIDGE = REPO / "neo" / "keybridge.py"
+HLS = "https://itsvideo.arlingtonva.us:8011/live/cam{:02d}.stream/playlist.m3u8"
+# Verified-live cam numbers (probed 2026-05-26).
+CAMS = [10, 11, 13, 14, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 27, 28, 29, 30,
+        31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 43, 44, 45, 46, 47, 48, 49, 50,
+        51, 52, 53, 54, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 70, 71, 72,
+        73, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 90]
 
-# =============================================================================
-# Scraper / API Mode
-# =============================================================================
 
 def list_cams():
-    """Scrape and aggregate live camera feeds."""
-    results = []
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    print(json.dumps([
+        {"name": f"Arlington VA - Cam {n:02d}", "url": HLS.format(n), "type": "hls"}
+        for n in CAMS
+    ]))
 
-    # 1. SkylineWebcams (Extremely reliable world cams)
-    skyline_cams = [
-        ("Times Square, NY", "https://www.skylinewebcams.com/en/webcam/united-states/new-york/new-york/times-square.html"),
-        ("Milan Cathedral, IT", "https://www.skylinewebcams.com/en/webcam/italia/lombardia/milano/duomo-milano.html"),
-        ("Piazza Navona, Rome", "https://www.skylinewebcams.com/en/webcam/italia/lazio/roma/piazza-navona.html"),
-        ("Tenerife, Spain", "https://www.skylinewebcams.com/en/webcam/espana/canarias/santa-cruz-de-tenerife/playa-las-vistas.html"),
-        ("Grand Canal, Venice", "https://www.skylinewebcams.com/en/webcam/italia/veneto/venezia/canal-grande-rialto.html")
-    ]
-    
-    for name, url in skyline_cams:
-        # Skyline thumbnails follow a pattern based on the URL
-        slug = url.split("/")[-1].replace(".html", "")
-        results.append({
-            "name": f"Sky: {name}",
-            "thumb": f"https://cdn.skylinewebcams.com/thumbs/{slug}.jpg",
-            "url": url,
-            "type": "hls"
-        })
 
-    # 2. FL511 (Florida DOT - ArcGIS)
+def play(url, name):
+    print(f"Streaming: {name}")
+    bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "mpv"])
+    env = os.environ.copy()
+    env.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
+    env.setdefault("WAYLAND_DISPLAY", "wayland-0")
+    cmd = ["mpv", "--fs", "--really-quiet",
+           "--vo=gpu", "--gpu-context=wayland", "--hwdec=auto", "--ao=pipewire",
+           "--cache=yes", "--demuxer-max-bytes=32M",
+           f"--force-media-title={name}", url]
     try:
-        fl_url = "https://services1.arcgis.com/0MSEUqKaxRlEPjhp/arcgis/rest/services/FL511_Traffic_Cameras/FeatureServer/0/query"
-        params = {
-            "where": "1=1",
-            "outFields": "CameraName,VideoURL,SnapshotURL",
-            "resultRecordCount": 15,
-            "f": "json"
-        }
-        resp = requests.get(fl_url, params=params, timeout=10, verify=False, headers=headers)
-        data = resp.json()
-        for f in data.get("features", []):
-            attr = f["attributes"]
-            vurl = attr.get("VideoURL")
-            if vurl and vurl.startswith("http"):
-                results.append({
-                    "name": f"FL: {attr.get('CameraName', 'Cam')}",
-                    "thumb": attr.get("SnapshotURL"),
-                    "url": vurl,
-                    "type": "hls"
-                })
-    except: pass
-
-    # 3. Opentopia (Requested 15516 + others)
-    opentopia_cams = [
-        ("Nagano, JP", "15516"),
-        ("Tokyo, JP", "16031"),
-        ("Amsterdam, NL", "10191"),
-        ("Paris, FR", "9532"),
-        ("Zurich, CH", "12519")
-    ]
-    for name, cid in opentopia_cams:
-        results.append({
-            "name": f"Open: {name}",
-            "thumb": f"https://www.opentopia.com/images/cams/{cid}.jpg",
-            "url": f"http://www.opentopia.com/webcam/{cid}", 
-            "type": "mjpeg"
-        })
-
-    print(json.dumps(results))
-
-# =============================================================================
-# MJPEG Engine (Custom Pygame)
-# =============================================================================
-
-def resolve_opentopia(url):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers, timeout=10)
-        # Find the MJPEG source or the Host link
-        match = re.search(r'href="([^"]+)"[^>]*>Host', resp.text)
-        if match:
-            hurl = match.group(1).rstrip("/")
-            if "/axis-cgi" not in hurl: hurl += "/axis-cgi/mjpg/video.cgi"
-            return hurl
-    except: pass
-    return url
-
-class MJPEGViewer:
-    def __init__(self, url, name="CCTV"):
-        import pygame
-        self.url = url
-        self.name = name
-        self.running = True
-        self.last_frame = None
-        self.frame_lock = threading.Lock()
-        self.fps = 0.0
-        self.status = "Initializing..."
-        self.zoom_idx = 0
-        self.pan_x, self.pan_y = 0.5, 0.5
-        
-        pygame.init()
-        # Ensure we try to get a window even if wayland is picky
+        subprocess.run(cmd, env=env)
+    finally:
         try:
-            self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
-        except:
-            self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-            
-        pygame.mouse.set_visible(False)
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("dejavusansmono", 14)
+            bridge.send_signal(signal.SIGTERM)
+        except Exception:
+            pass
+        subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"], capture_output=True)
 
-    def _worker(self):
-        import pygame
-        target = self.url
-        if "opentopia.com" in target:
-            self.status = "Resolving Host..."
-            target = resolve_opentopia(target)
-            
-        self.status = "Connecting..."
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            resp = requests.get(target, stream=True, timeout=15, headers=headers)
-            resp.raise_for_status()
-            buf = bytearray()
-            fc = 0
-            t0 = time.time()
-            self.status = "Streaming"
-            
-            for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
-                if not self.running: break
-                buf.extend(chunk)
-                while True:
-                    s = buf.find(b"\xff\xd8")
-                    if s < 0: break
-                    e = buf.find(b"\xff\xd9", s + 2)
-                    if e < 0: break
-                    jpg = buf[s:e+2]
-                    del buf[:e+2]
-                    try:
-                        img = pygame.image.load(io.BytesIO(jpg)).convert()
-                        zoom = ZOOM_LEVELS[self.zoom_idx]
-                        if zoom > 1:
-                            w, h = img.get_size()
-                            zw, zh = w // zoom, h // zoom
-                            zx = int((w - zw) * self.pan_x)
-                            zy = int((h - zh) * self.pan_y)
-                            img = img.subsurface((zx, zy, zw, zh))
-                        img = pygame.transform.scale(img, (WIDTH, HEIGHT))
-                        with self.frame_lock:
-                            self.last_frame = img
-                        fc += 1
-                        if time.time() - t0 >= 1.0:
-                            self.fps = round(fc / (time.time() - t0), 1)
-                            fc, t0 = 0, time.time()
-                    except: pass
-                if len(buf) > 1024*1024: buf = bytearray()
-        except Exception as e:
-            self.status = f"Error: {str(e)[:25]}"
-
-    def run(self):
-        import pygame
-        threading.Thread(target=self._worker, daemon=True).start()
-        while self.running:
-            for event in pygame.event.get():
-                if event.type == pygame.KEYDOWN:
-                    if event.key in (pygame.K_k, pygame.K_ESCAPE): self.running = False
-                    elif event.key == pygame.K_u: self.zoom_idx = (self.zoom_idx + 1) % len(ZOOM_LEVELS)
-                    elif event.key == pygame.K_LEFT and self.zoom_idx > 0: self.pan_x = max(0, self.pan_x - 0.1)
-                    elif event.key == pygame.K_RIGHT and self.zoom_idx > 0: self.pan_x = min(1, self.pan_x + 0.1)
-                    elif event.key == pygame.K_UP and self.zoom_idx > 0: self.pan_y = max(0, self.pan_y - 0.1)
-                    elif event.key == pygame.K_DOWN and self.zoom_idx > 0: self.pan_y = min(1, self.pan_y + 0.1)
-
-            self.screen.fill((10, 5, 15))
-            with self.frame_lock:
-                if self.last_frame: self.screen.blit(self.last_frame, (0, 0))
-                else:
-                    txt = self.font.render(self.status, True, (150, 150, 150))
-                    self.screen.blit(txt, (WIDTH//2 - txt.get_width()//2, HEIGHT//2))
-            
-            pygame.draw.rect(self.screen, (0, 0, 0, 180), (0, 0, WIDTH, 24))
-            self.screen.blit(self.font.render(self.name, True, (45, 226, 255)), (10, 4))
-            self.screen.blit(self.font.render(f"{self.fps} FPS", True, (255, 200, 0)), (WIDTH-70, 4))
-            pygame.display.flip()
-            self.clock.tick(30)
-        pygame.quit()
-
-# =============================================================================
-# Main
-# =============================================================================
 
 def main():
     if len(sys.argv) < 2:
         sys.exit(1)
-
     if sys.argv[1] == "--list":
         list_cams()
         return
+    play(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "CCTV")
 
-    target = sys.argv[1]
-    name = sys.argv[2] if len(sys.argv) > 2 else "CCTV"
-    
-    # Check if target is a web URL or direct stream
-    if any(x in target for x in (".m3u8", ".mpd", "youtube", "skylinewebcams")):
-        import subprocess
-        import signal
-        print(f"Launching Stream: {name}")
-        bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "mpv"])
-        # We let yt-dlp handle SkylineWebcams links
-        cmd = [
-            "mpv", "--fs", "--vo=gpu", "--gpu-context=wayland", "--ao=pipewire",
-            "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]",
-            target
-        ]
-        try:
-            env = os.environ.copy()
-            env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-            env["WAYLAND_DISPLAY"] = "wayland-0"
-            subprocess.run(cmd, env=env)
-        finally:
-            try: bridge.send_signal(signal.SIGTERM)
-            except: pass
-            subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"], capture_output=True, check=False)
-    else:
-        viewer = MJPEGViewer(target, name)
-        viewer.run()
 
 if __name__ == "__main__":
     main()

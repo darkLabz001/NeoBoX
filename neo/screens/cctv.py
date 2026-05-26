@@ -1,91 +1,107 @@
-"""CCTV Gallery screen."""
+"""CCTV gallery: lists live traffic cams and shows a preview frame for each
+(grabbed from the stream with ffmpeg, cached). Selecting one plays its HLS feed
+full-screen in mpv. Previews + playback use the same direct .m3u8, so if a cam
+plays, its preview works too."""
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import threading
-import io
-import hashlib
 import time
 from pathlib import Path
 
 import pygame
-import requests
 
 from . import Screen
 from .. import config
 from ..ui import statusbar
 
-YT_CACHE = config.CACHE_DIR / "yt_thumbs"
+THUMB_DIR = config.CACHE_DIR / "cctv_thumbs"
+ROW_H = 50
+THUMB_W, THUMB_H = 84, 47
+MAX_INFLIGHT = 2          # concurrent ffmpeg preview grabs
+
 
 class CctvGalleryScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
         self.results = []
         self.index = 0
-        self.scroll = 0
-        self.target_scroll = 0
+        self.scroll = 0.0
+        self.target_scroll = 0.0
         self.loading = True
         self.error = None
-        self.thumbs = {} # URL -> Surface
+        self.thumbs: dict[str, pygame.Surface] = {}
+        self._pending: set[str] = set()
+        self._inflight = 0
+        self._lock = threading.Lock()
         self._load_data()
 
+    # --- data -----------------------------------------------------------
     def _load_data(self):
         def worker():
             try:
-                # Use a longer timeout for the scraper
                 cmd = ["python3", str(config.PAYLOADS_DIR / "recon" / "cctv_viewer.py"), "--list"]
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                if proc.stdout.strip():
-                    data = json.loads(proc.stdout)
+                data = json.loads(proc.stdout) if proc.stdout.strip() else []
+                if data:
                     self.results = data
-                    for item in self.results:
-                        if item["thumb"] and item["thumb"] != "recon":
-                            self._load_thumb(item["thumb"])
                 else:
-                    self.error = "No camera data received"
-            except subprocess.TimeoutExpired:
-                self.error = "Scraper timed out"
+                    self.error = "No camera data"
             except Exception as e:
-                self.error = f"Scraper error: {str(e)}"
+                self.error = f"Load error: {e}"
             finally:
                 self.loading = False
         threading.Thread(target=worker, daemon=True).start()
 
-    def _load_thumb(self, url):
-        if not url.startswith("http"): return
-        h = hashlib.md5(url.encode()).hexdigest()
-        cache_path = YT_CACHE / f"cctv_{h}.jpg"
-        def load():
-            try:
-                if cache_path.exists():
-                    img = pygame.image.load(str(cache_path))
-                else:
-                    resp = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
-                    if resp.status_code == 200:
-                        with open(cache_path, "wb") as f:
-                            f.write(resp.content)
-                        img = pygame.image.load(io.BytesIO(resp.content))
-                    else: return
-                img = pygame.transform.smoothscale(img, (80, 45))
-                self.thumbs[url] = img
-            except: pass
-        threading.Thread(target=load, daemon=True).start()
+    # --- previews (ffmpeg frame grab, lazy + cached) -------------------
+    def _ensure_thumb(self, url):
+        with self._lock:
+            if url in self.thumbs or url in self._pending or self._inflight >= MAX_INFLIGHT:
+                return
+            self._pending.add(url)
+            self._inflight += 1
+        threading.Thread(target=self._grab, args=(url,), daemon=True).start()
 
+    def _grab(self, url):
+        try:
+            cache = THUMB_DIR / f"{hashlib.md5(url.encode()).hexdigest()}.jpg"
+            if not (cache.exists() and cache.stat().st_size > 0):
+                THUMB_DIR.mkdir(parents=True, exist_ok=True)
+                subprocess.run(
+                    ["ffmpeg", "-y", "-loglevel", "error", "-rw_timeout", "15000000",
+                     "-i", url, "-frames:v", "1", "-vf", f"scale={THUMB_W}:-1", str(cache)],
+                    capture_output=True, timeout=25)
+            if cache.exists() and cache.stat().st_size > 0:
+                img = pygame.image.load(str(cache))
+                self.thumbs[url] = pygame.transform.smoothscale(img, (THUMB_W, THUMB_H))
+        except Exception:
+            pass
+        finally:
+            with self._lock:
+                self._pending.discard(url)
+                self._inflight -= 1
+
+    # --- input ----------------------------------------------------------
     def on_action(self, action: str):
-        if self.loading: return
+        if self.loading or not self.results:
+            if action == "B":
+                self.app.pop()
+            return
         if action == "UP":
-            if self.results: 
-                self.index = (self.index - 1) % len(self.results)
-                self._ensure_visible()
+            self.index = (self.index - 1) % len(self.results)
+            self._ensure_visible()
         elif action == "DOWN":
-            if self.results: 
-                self.index = (self.index + 1) % len(self.results)
-                self._ensure_visible()
+            self.index = (self.index + 1) % len(self.results)
+            self._ensure_visible()
+        elif action == "L":
+            self.index = max(0, self.index - 5); self._ensure_visible()
+        elif action == "R":
+            self.index = min(len(self.results) - 1, self.index + 5); self._ensure_visible()
         elif action == "A":
-            if self.results:
-                cam = self.results[self.index]
-                self.app.launch_payload(self._get_meta(), {}, cam["url"], cam["name"])
+            cam = self.results[self.index]
+            self.app.launch_payload(self._meta(), {}, cam["url"], cam["name"])
         elif action == "B":
             self.app.pop()
 
@@ -95,83 +111,71 @@ class CctvGalleryScreen(Screen):
         elif self.index >= self.target_scroll + 5:
             self.target_scroll = self.index - 4
 
-    def _get_meta(self):
-        return {
-            "name": "CCTV Viewer",
-            "path": str(config.PAYLOADS_DIR / "recon" / "cctv_viewer.py"),
-            "input": "gpio"
-        }
+    def _meta(self):
+        return {"name": "CCTV Viewer", "input": "gpio",
+                "path": str(config.PAYLOADS_DIR / "recon" / "cctv_viewer.py")}
 
-    def update(self, dt: float):
-        self.scroll += (self.target_scroll - self.scroll) * 0.2
+    def update(self, dt):
+        self.scroll += (self.target_scroll - self.scroll) * 0.25
+        if abs(self.scroll - self.target_scroll) < 0.01:
+            self.scroll = self.target_scroll
 
     def is_animating(self):
-        return self.loading or abs(self.scroll - self.target_scroll) > 0.01
+        return self.loading or abs(self.scroll - self.target_scroll) > 0.01 \
+            or self._inflight > 0 or bool(self._pending)
 
+    # --- draw -----------------------------------------------------------
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
-        self.app.statusbar.draw(surf, theme, "CCTV GALLERY")
-        
-        font = theme.font("ui")
-        small = theme.font("small")
-        accent = theme.color("accent")
-        text = theme.color("text")
-        dim = theme.color("text_dim")
-
-        ry = statusbar.HEIGHT + 10
-        area = pygame.Rect(10, ry, config.SCREEN_W - 20, config.SCREEN_H - ry - 28)
+        self.app.statusbar.draw(surf, theme, "CCTV")
+        font, small = theme.font("ui"), theme.font("small")
+        accent, text, dim = theme.color("accent"), theme.color("text"), theme.color("text_dim")
+        ry = statusbar.HEIGHT + 8
+        area = pygame.Rect(8, ry, config.SCREEN_W - 16, config.SCREEN_H - ry - 26)
 
         if self.loading:
-            txt = font.render("Scraping Live Feeds...", True, dim)
-            surf.blit(txt, (config.SCREEN_W // 2 - txt.get_width() // 2, ry + 40))
-            # Spinner animation
-            angle = (time.time() * 5) % 360
-            pygame.draw.arc(surf, accent, (config.SCREEN_W // 2 - 15, ry + 80, 30, 30), 0, 1.5, 3)
-        elif self.error:
-            txt = small.render(f"Error: {self.error}", True, theme.color("danger"))
-            surf.blit(txt, (10, ry))
-        elif self.results:
-            # Scrollbar
-            pygame.draw.rect(surf, theme.color("tile"), (config.SCREEN_W - 8, ry, 4, area.height), border_radius=2)
-            scroll_h = max(10, (5 / len(self.results)) * area.height)
-            scroll_y = ry + (self.scroll / len(self.results)) * area.height
-            pygame.draw.rect(surf, accent, (config.SCREEN_W - 8, scroll_y, 4, scroll_h), border_radius=2)
+            t = font.render("Loading cameras" + "." * (int(time.time() * 2) % 4), True, dim)
+            surf.blit(t, t.get_rect(center=area.center))
+            return
+        if self.error:
+            surf.blit(small.render(self.error, True, theme.color("danger")), (10, ry))
+            return
 
-            prev_clip = surf.get_clip()
-            surf.set_clip(area)
-            for i, item in enumerate(self.results):
-                iy = ry + (i - self.scroll) * 50
-                if iy < ry - 50 or iy > area.bottom: continue
-                
-                rect = pygame.Rect(10, iy, area.width - 6, 46)
-                sel = (i == self.index)
-                bg = theme.color("tile_sel") if sel else theme.color("tile")
-                pygame.draw.rect(surf, bg, rect, border_radius=6)
-                if sel:
-                    pygame.draw.rect(surf, accent, rect, width=1, border_radius=6)
-                
-                # Thumbnail
-                turl = item["thumb"]
-                if turl in self.thumbs:
-                    surf.blit(self.thumbs[turl], (rect.x + 4, rect.y + 1))
-                else:
-                    # Procedural placeholder
-                    pygame.draw.rect(surf, theme.color("bg"), (rect.x + 4, rect.y + 3, 80, 40), border_radius=4)
-                    c = (50, 50, 60)
-                    pygame.draw.circle(surf, c, (rect.x + 44, rect.y + 23), 6)
+        visible = max(1, area.height // ROW_H)
+        surf.set_clip(area)
+        for i, item in enumerate(self.results):
+            iy = int(ry + (i - self.scroll) * ROW_H)
+            if iy < ry - ROW_H or iy > area.bottom:
+                continue
+            sel = (i == self.index)
+            rect = pygame.Rect(8, iy, area.width, ROW_H - 4)
+            pygame.draw.rect(surf, theme.color("tile_sel") if sel else theme.color("tile"),
+                             rect, border_radius=6)
+            if sel:
+                pygame.draw.rect(surf, accent, rect, width=1, border_radius=6)
+            # preview (lazy ffmpeg grab)
+            self._ensure_thumb(item["url"])
+            tr = pygame.Rect(rect.x + 4, rect.y + (ROW_H - 4 - THUMB_H) // 2, THUMB_W, THUMB_H)
+            thumb = self.thumbs.get(item["url"])
+            if thumb:
+                surf.blit(thumb, tr)
+            else:
+                pygame.draw.rect(surf, theme.color("bg"), tr, border_radius=3)
+                d = small.render("..." if item["url"] in self._pending else "CAM", True, dim)
+                surf.blit(d, d.get_rect(center=tr.center))
+            pygame.draw.rect(surf, dim, tr, width=1, border_radius=3)
+            # name + status
+            name = item["name"][:34]
+            surf.blit(font.render(name, True, text), (tr.right + 10, rect.y + 6))
+            surf.blit(small.render(f"{item['type'].upper()}  •  LIVE", True,
+                                   accent if sel else dim), (tr.right + 10, rect.y + 26))
+        surf.set_clip(None)
 
-                # Title
-                name = item["name"]
-                if len(name) > 42: name = name[:39] + "..."
-                tsurf = small.render(name, True, text)
-                surf.blit(tsurf, (rect.x + 90, rect.y + 4))
-                
-                # Info
-                info = f"Type: {item['type'].upper()} | Status: LIVE"
-                isurf = small.render(info, True, dim)
-                surf.blit(isurf, (rect.x + 90, rect.y + 24))
-            
-            surf.set_clip(prev_clip)
+        # scrollbar
+        if len(self.results) > visible:
+            bh = max(12, int(area.height * visible / len(self.results)))
+            by = ry + int((area.height - bh) * (self.scroll / max(1, len(self.results) - visible)))
+            pygame.draw.rect(surf, accent, (config.SCREEN_W - 6, by, 3, bh), border_radius=2)
 
     def hints(self):
-        return [("B", "back"), ("A", "view"), ("LR", "pages")]
+        return [("A", "watch"), ("B", "back"), ("LR", "jump")]
