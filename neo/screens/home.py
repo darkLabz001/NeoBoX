@@ -25,8 +25,10 @@ class HomeScreen(Screen):
              "hide_label": True, "_section": s}
             for s in self.sections
         ]
-        area = pygame.Rect(0, statusbar.HEIGHT, config.SCREEN_W,
-                           config.SCREEN_H - statusbar.HEIGHT - 24)
+        # Leave a clear header band for the baked-in NeoBoX logo/tagline (top-left
+        # of the wallpaper) so the icon grid doesn't sit on top of it.
+        header = 64
+        area = pygame.Rect(0, header, config.SCREEN_W, config.SCREEN_H - header - 24)
         self.grid = IconGrid(items, area, cols=3, rows=2, margin=14, gap=12)
 
     def on_action(self, action: str):

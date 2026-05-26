@@ -156,10 +156,12 @@ class IconGrid:
         if self.page_count <= 1:
             return
         n = self.page_count
-        spacing = 12
-        total = (n - 1) * spacing
-        cx = self.area.centerx - total // 2
-        y = self.area.bottom - 4
+        spacing = 16
+        cx = self.area.centerx - ((n - 1) * spacing) // 2
+        y = self.area.bottom - 6
         for i in range(n):
-            c = theme.color("accent") if i == self.page else theme.color("text_dim")
-            pygame.draw.circle(surf, c, (cx + i * spacing, y), 3 if i == self.page else 2)
+            p = (cx + i * spacing, y)
+            if i == self.page:
+                pygame.draw.circle(surf, theme.color("accent"), p, 4)
+            else:
+                pygame.draw.circle(surf, theme.color("text_dim"), p, 3, width=1)  # hollow
