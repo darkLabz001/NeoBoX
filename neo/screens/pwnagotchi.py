@@ -15,8 +15,11 @@ import threading
 import time
 from pathlib import Path
 
+import pygame
+
 from . import Screen
 from .. import config
+from ..ui import statusbar
 
 LOOT = Path.home() / "loot"
 
@@ -133,6 +136,14 @@ class PwnagotchiScreen(Screen):
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
         self.app.statusbar.draw(surf, theme, self.title)
+        # translucent panel so the face/stats stay readable over the wallpaper
+        top = statusbar.HEIGHT + 6
+        panel = pygame.Surface((config.SCREEN_W - 32, config.SCREEN_H - top - 30), pygame.SRCALPHA)
+        panel.fill((0, 0, 0, 160))
+        surf.blit(panel, (16, top))
+        pygame.draw.rect(surf, theme.color("accent"),
+                         (16, top, config.SCREEN_W - 32, config.SCREEN_H - top - 30),
+                         width=1, border_radius=10)
         big, ui, small = theme.font("title"), theme.font("ui"), theme.font("small")
         accent, text, dim = theme.color("accent"), theme.color("text"), theme.color("text_dim")
         cx = config.SCREEN_W // 2
