@@ -7,7 +7,7 @@
 # neo-input: gpio
 
 import os
-# CRITICAL: Suppress ALL pygame stdout to avoid breaking JSON output for the UI
+# Suppress pygame welcome message
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 import sys
@@ -56,9 +56,11 @@ def list_cams():
         })
 
     # 2. Arlington VA (High reliability HLS cluster)
+    # They don't have easy static thumbnails, we use a generic city icon or first frame if we had more time
+    # but for now we provide a unique-ish placeholder
     for cid in [10, 11, 13, 14, 15, 20, 21, 25]:
         results.append({
-            "name": f"Traffic: Arlington {cid}",
+            "name": f"Arlington Cam {cid}",
             "thumb": "recon",
             "url": f"https://itsvideo.arlingtonva.us:8011/live/cam{cid}.stream/playlist.m3u8",
             "type": "hls"
@@ -97,12 +99,11 @@ def list_cams():
             "type": "mjpeg"
         })
 
-    # Final JSON output - Ensure NO OTHER PRINTS occur before or after this
     sys.stdout.write(json.dumps(results))
     sys.stdout.flush()
 
 # =============================================================================
-# MJPEG Engine
+# Playback Helpers
 # =============================================================================
 
 def resolve_opentopia(url):
@@ -116,6 +117,22 @@ def resolve_opentopia(url):
             return hurl
     except: pass
     return url
+
+def setup_env():
+    """Ensure environment variables are correct for Wayland/Pi."""
+    env = os.environ.copy()
+    if "XDG_RUNTIME_DIR" not in env:
+        uid = os.getuid()
+        env["XDG_RUNTIME_DIR"] = f"/run/user/{uid}"
+    if "WAYLAND_DISPLAY" not in env:
+        env["WAYLAND_DISPLAY"] = "wayland-0"
+    # Force Wayland for SDL/Pygame
+    env["SDL_VIDEODRIVER"] = "wayland"
+    return env
+
+# =============================================================================
+# MJPEG Engine
+# =============================================================================
 
 class MJPEGViewer:
     def __init__(self, url, name="CCTV"):
@@ -131,8 +148,13 @@ class MJPEGViewer:
         self.pan_x, self.pan_y = 0.5, 0.5
         
         pygame.init()
-        try: self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
-        except: self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        # High-reliability window creation
+        try:
+            self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
+        except Exception as e:
+            print(f"Fullscreen failed: {e}, falling back to windowed")
+            self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+            
         pygame.mouse.set_visible(False)
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("dejavusansmono", 14)
@@ -140,7 +162,11 @@ class MJPEGViewer:
     def _worker(self):
         import pygame
         target = self.url
-        if "opentopia.com" in target: target = resolve_opentopia(target)
+        if "opentopia.com" in target:
+            self.status = "Resolving host..."
+            target = resolve_opentopia(target)
+            
+        self.status = "Opening Stream..."
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             resp = requests.get(target, stream=True, timeout=15, headers=headers)
@@ -149,6 +175,7 @@ class MJPEGViewer:
             fc = 0
             t0 = time.time()
             self.status = "Streaming"
+            
             for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
                 if not self.running: break
                 buf.extend(chunk)
@@ -160,7 +187,9 @@ class MJPEGViewer:
                     jpg = buf[s:e+2]
                     del buf[:e+2]
                     try:
-                        img = pygame.image.load(io.BytesIO(jpg)).convert()
+                        img_io = io.BytesIO(jpg)
+                        img = pygame.image.load(img_io).convert()
+                        
                         zoom = ZOOM_LEVELS[self.zoom_idx]
                         if zoom > 1:
                             w, h = img.get_size()
@@ -168,8 +197,10 @@ class MJPEGViewer:
                             zx = int((w - zw) * self.pan_x)
                             zy = int((h - zh) * self.pan_y)
                             img = img.subsurface((zx, zy, zw, zh))
+                        
                         img = pygame.transform.scale(img, (WIDTH, HEIGHT))
-                        with self.frame_lock: self.last_frame = img
+                        with self.frame_lock:
+                            self.last_frame = img
                         fc += 1
                         if time.time() - t0 >= 1.0:
                             self.fps = round(fc / (time.time() - t0), 1)
@@ -177,7 +208,7 @@ class MJPEGViewer:
                     except: pass
                 if len(buf) > 1024*1024: buf = bytearray()
         except Exception as e:
-            self.status = f"Error: {str(e)[:25]}"
+            self.status = f"Err: {str(e)[:25]}"
 
     def run(self):
         import pygame
@@ -186,47 +217,58 @@ class MJPEGViewer:
             for event in pygame.event.get():
                 if event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_k, pygame.K_ESCAPE): self.running = False
-                    elif event.key == pygame.K_u: self.zoom_idx = (self.zoom_idx + 1) % len(ZOOM_LEVELS)
+                    elif event.key == pygame.K_u: # Zoom
+                        self.zoom_idx = (self.zoom_idx + 1) % len(ZOOM_LEVELS)
                     elif event.key == pygame.K_LEFT and self.zoom_idx > 0: self.pan_x = max(0, self.pan_x - 0.1)
                     elif event.key == pygame.K_RIGHT and self.zoom_idx > 0: self.pan_x = min(1, self.pan_x + 0.1)
                     elif event.key == pygame.K_UP and self.zoom_idx > 0: self.pan_y = max(0, self.pan_y - 0.1)
                     elif event.key == pygame.K_DOWN and self.zoom_idx > 0: self.pan_y = min(1, self.pan_y + 0.1)
+
             self.screen.fill((0, 0, 0))
             with self.frame_lock:
                 if self.last_frame: self.screen.blit(self.last_frame, (0, 0))
                 else:
                     txt = self.font.render(self.status, True, (150, 150, 150))
                     self.screen.blit(txt, (WIDTH//2 - txt.get_width()//2, HEIGHT//2))
+            
+            # HUD
             pygame.draw.rect(self.screen, (0, 0, 0, 180), (0, 0, WIDTH, 24))
             self.screen.blit(self.font.render(self.name, True, (45, 226, 255)), (10, 4))
             self.screen.blit(self.font.render(f"{self.fps} FPS", True, (255, 200, 0)), (WIDTH-70, 4))
+            
             pygame.display.flip()
             self.clock.tick(30)
         pygame.quit()
+
+# =============================================================================
+# Main
+# =============================================================================
 
 def main():
     if len(sys.argv) < 2: sys.exit(1)
     if sys.argv[1] == "--list":
         list_cams()
         return
+
     target = sys.argv[1]
     name = sys.argv[2] if len(sys.argv) > 2 else "CCTV"
+    env = setup_env()
+
     if any(x in target for x in (".m3u8", ".mpd", "youtube", "skylinewebcams")):
         import subprocess
         import signal
+        print(f"Launching Stream: {name}")
         bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "mpv"])
         cmd = ["mpv", "--fs", "--vo=gpu", "--gpu-context=wayland", "--ao=pipewire",
                "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]", target]
         try:
-            env = os.environ.copy()
-            env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-            env["WAYLAND_DISPLAY"] = "wayland-0"
             subprocess.run(cmd, env=env)
         finally:
             try: bridge.send_signal(signal.SIGTERM)
             except: pass
             subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"], capture_output=True, check=False)
     else:
+        # Assume MJPEG
         viewer = MJPEGViewer(target, name)
         viewer.run()
 
