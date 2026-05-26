@@ -420,6 +420,21 @@ class App:
             self.window.blit(scaled, ((win_w - size[0]) // 2, (win_h - size[1]) // 2))
         pygame.display.flip()
 
+    def _target_fps(self) -> int:
+        \"\"\"Cap FPS based on active screen to save CPU.\"\"\"
+        if self._suspend_render:
+            return 5
+        scr = self.current
+        # Live video screens need higher frame rate
+        from .screens.cctv_viewer import CctvViewerScreen
+        if isinstance(scr, CctvViewerScreen):
+            return 30
+        # Animation/Console screens
+        if scr.is_animating():
+            return 30
+        # Static menus
+        return 15
+
     def run(self):
         # Render on demand: only redraw when something changed, an animation is
         # running, or ~1/s for the clock. Keeps the Pi 3B+ near-idle on static
@@ -428,9 +443,10 @@ class App:
         self._suspend_render = False
         last_render = 0.0
         while self.running:
-            self.clock.tick(config.FPS)
+            self.clock.tick(self._target_fps())
             if self._suspend_render:        # a game owns the screen; stay out of its way
-                time.sleep(0.15)
+                self._pump_events()         # still need to check for B to exit
+                time.sleep(0.1)
                 continue
             try:
                 self._pump_events()
