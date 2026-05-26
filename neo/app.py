@@ -147,6 +147,12 @@ class App:
         self.set_theme(names[(i + 1) % len(names)])
 
     def run_payload(self, meta: dict):
+        # YouTube custom UI
+        if meta.get("name") == "YouTube":
+            from .screens.youtube import YoutubeSearchScreen
+            self.push(YoutubeSearchScreen(self))
+            return
+
         # ROM-based games: show a picker first so you choose which ROM to play.
         if meta.get("roms"):
             from .screens.rompicker import RomPickerScreen
