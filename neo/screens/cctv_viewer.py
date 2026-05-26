@@ -1,4 +1,4 @@
-"""CCTV Viewer screen — Integrated MJPEG/HLS streaming based on BigBox logic."""
+"""CCTV Viewer screen — High-tech integrated MJPEG/HLS streaming engine."""
 from __future__ import annotations
 
 import io
@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import threading
 import time
+import random
 from collections import deque
 from datetime import datetime
 
@@ -20,11 +21,11 @@ from . import Screen
 from .. import config
 
 class CctvViewerScreen(Screen):
-    def __init__(self, app, camera_data: dict):
+    def __init__(self, app, cameras: list[dict], index: int):
         super().__init__(app)
-        self.cam = camera_data
-        self.url = camera_data.get("url")
-        self.name = camera_data.get("name", "Unknown Camera")
+        self.cameras = cameras
+        self.index = index
+        self.cam = cameras[index]
         
         # State
         self._frame_buffer = deque(maxlen=1)
@@ -35,12 +36,34 @@ class CctvViewerScreen(Screen):
         self.view_w = config.SCREEN_W - 20
         self.view_h = config.SCREEN_H - 80
         
+        # FX State
+        self._scanline_y = 0
+        self._glitch_t = 0
+        self._scanlines_surf = self._create_scanlines()
+        
         self._stop_thread = False
         self._fetch_thread = None
         self._start_stream_thread()
 
+    def _create_scanlines(self):
+        s = pygame.Surface((self.view_w, self.view_h), pygame.SRCALPHA)
+        for y in range(0, self.view_h, 2):
+            pygame.draw.line(s, (0, 0, 0, 60), (0, y), (self.view_w, y))
+        return s
+
     def _start_stream_thread(self):
         self._stop_thread = False
+        self._frame_buffer.clear()
+        self.loading = True
+        self.error_msg = None
+        self.cam = self.cameras[self.index]
+        self.url = self.cam.get("url")
+        self.name = self.cam.get("name", "Unknown Camera")
+        
+        if self._fetch_thread and self._fetch_thread.is_alive():
+            # Wait briefly or just start a new one if it's daemon
+            pass
+            
         self._fetch_thread = threading.Thread(target=self._fetch_loop, daemon=True)
         self._fetch_thread.start()
 
@@ -121,7 +144,6 @@ class CctvViewerScreen(Screen):
             except: pass
 
         if url.lower().split("?", 1)[0].endswith(".m3u8") or "skylinewebcams" in url:
-            # skylinewebcams needs resolution too
             if "skylinewebcams" in url:
                 try:
                     r = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
@@ -170,7 +192,9 @@ class CctvViewerScreen(Screen):
                         self._frame_buffer.append(raw_surf)
                         self.loading = False
                         self.fps = 1.0
-                    time.sleep(2)
+                    for _ in range(40): # Sleep 2s but check stop_thread
+                        if self._stop_thread: break
+                        time.sleep(0.05)
         except Exception as e:
             self.error_msg = str(e)
 
@@ -180,16 +204,26 @@ class CctvViewerScreen(Screen):
             self.app.pop()
         elif action == "UP":
             self.zoom = 2 if self.zoom == 1 else (4 if self.zoom == 2 else 1)
+        elif action == "LEFT":
+            self._stop_thread = True
+            self.index = (self.index - 1) % len(self.cameras)
+            self._start_stream_thread()
+        elif action == "RIGHT":
+            self._stop_thread = True
+            self.index = (self.index + 1) % len(self.cameras)
+            self._start_stream_thread()
 
     def update(self, dt: float):
-        pass
+        self._scanline_y = (self._scanline_y + dt * 60) % self.view_h
+        if random.random() < 0.05:
+            self._glitch_t = 0.15
 
     def is_animating(self):
-        return not self._stop_thread
+        return True
 
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
-        self.app.statusbar.draw(surf, theme, f"LIVE: {self.name[:20]}")
+        self.app.statusbar.draw(surf, theme, f"REC: {self.name[:24].upper()}")
         
         view_rect = pygame.Rect(10, 50, self.view_w, self.view_h)
         pygame.draw.rect(surf, (0, 0, 0), view_rect)
@@ -197,11 +231,11 @@ class CctvViewerScreen(Screen):
         
         if self.loading:
             font = theme.font("ui")
-            txt = font.render("Connecting...", True, theme.color("text_dim"))
+            txt = font.render("HANDSHAKING...", True, theme.color("text_dim"))
             surf.blit(txt, (config.SCREEN_W // 2 - txt.get_width() // 2, config.SCREEN_H // 2))
         elif self.error_msg:
             font = theme.font("ui")
-            txt = font.render(f"Error: {self.error_msg[:30]}", True, theme.color("danger"))
+            txt = font.render(f"LINK LOSS: {self.error_msg[:30].upper()}", True, theme.color("danger"))
             surf.blit(txt, (config.SCREEN_W // 2 - txt.get_width() // 2, config.SCREEN_H // 2))
         elif self._frame_buffer:
             frame = self._frame_buffer[0]
@@ -212,12 +246,51 @@ class CctvViewerScreen(Screen):
                 frame = frame.subsurface((cx, cy, cw, ch))
             
             scaled = pygame.transform.scale(frame, (self.view_w, self.view_h))
+            
+            # Glitch effect
+            if self._glitch_t > 0:
+                self._glitch_t -= 0.016 # Roughly 1/60
+                y = random.randint(0, self.view_h - 10)
+                h = random.randint(2, 8)
+                off = random.randint(-10, 10)
+                sub = scaled.subsurface((0, y, self.view_w, h)).copy()
+                scaled.blit(sub, (off, y))
+            
             surf.blit(scaled, view_rect.topleft)
             
-            # OSD
+            # Scanlines overlay
+            surf.blit(self._scanlines_surf, view_rect.topleft)
+            
+            # Scanning bar
+            sy = view_rect.y + self._scanline_y
+            pygame.draw.line(surf, (theme.color("accent").r, theme.color("accent").g, theme.color("accent").b, 100), 
+                             (view_rect.x, sy), (view_rect.right, sy), 1)
+
+            # OSD Overlay
             small = theme.font("small")
-            osd = small.render(f"{self.fps:.1f} FPS | ZOOM: {self.zoom}x", True, theme.color("accent"))
-            surf.blit(osd, (view_rect.x + 5, view_rect.bottom - 20))
+            accent = theme.color("accent")
+            
+            # Corners
+            L = 15
+            c = accent
+            r = view_rect
+            pygame.draw.lines(surf, c, False, [(r.x+L, r.y), (r.x, r.y), (r.x, r.y+L)], 2)
+            pygame.draw.lines(surf, c, False, [(r.right-L, r.y), (r.right, r.y), (r.right, r.y+L)], 2)
+            pygame.draw.lines(surf, c, False, [(r.x+L, r.bottom), (r.x, r.bottom), (r.x, r.bottom-L)], 2)
+            pygame.draw.lines(surf, c, False, [(r.right-L, r.bottom), (r.right, r.bottom), (r.right, r.bottom-L)], 2)
+            
+            # Text info
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            surf.blit(small.render(f"CAM_{self.index:02d} | {ts}", True, accent), (view_rect.x + 10, view_rect.y + 10))
+            
+            fps_col = accent if self.fps > 5 else theme.color("danger")
+            surf.blit(small.render(f"SIGNAL: {self.fps:.1f} FPS", True, fps_col), (view_rect.x + 10, view_rect.bottom - 25))
+            surf.blit(small.render(f"ZOOM: {self.zoom}X", True, accent), (view_rect.right - 70, view_rect.bottom - 25))
+            
+            # REC dot
+            if int(time.time()) % 2 == 0:
+                pygame.draw.circle(surf, theme.color("danger"), (view_rect.right - 15, view_rect.y + 18), 5)
+                surf.blit(small.render("REC", True, theme.color("danger")), (view_rect.right - 45, view_rect.y + 10))
 
     def hints(self):
-        return [("B", "back"), ("UP", "zoom")]
+        return [("B", "back"), ("UP", "zoom"), ("LR", "switch")]

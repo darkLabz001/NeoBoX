@@ -95,8 +95,7 @@ class CctvGalleryScreen(Screen):
         elif action == "A":
             if self.results:
                 from .cctv_viewer import CctvViewerScreen
-                cam = self.results[self.index]
-                self.app.push(CctvViewerScreen(self.app, cam))
+                self.app.push(CctvViewerScreen(self.app, self.results, self.index))
         elif action == "B":
             self.app.pop()
 
