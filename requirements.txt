@@ -1,0 +1,6 @@
+pygame
+requests
+flask
+flask-socketio
+eventlet
+psutil
