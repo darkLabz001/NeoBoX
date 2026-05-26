@@ -6,9 +6,13 @@ __pycache__/
 
 # Neo runtime
 neo.log
+keybridge.log
+wifi.log
+web.log
 NOAUTOSTART
 
 # Dev previews / local
 previews/
 .claude/
 .DS_Store
+/*.png          # debug screenshots dropped in the repo root

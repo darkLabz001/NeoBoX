@@ -34,8 +34,8 @@ fi
 command -v pw-metadata >/dev/null && \
   pw-metadata -n settings 0 clock.force-quantum 2048 >/dev/null 2>&1 || true
 
-# Ensure Web UI service is running
-
+# Ensure the Web UI service is running (used for ROM/file uploads over the network).
+sudo systemctl start neo-web 2>/dev/null || true
 
 # Log persists across reboots (unlike /tmp) for debugging.
-exec python3 run.py --mode fullscreen --gpio >> "$HOME/neo/neo.log" 2>&1 >> "$HOME/neo/neo.log" 2>&1
+exec python3 run.py --mode fullscreen --gpio >> "$HOME/neo/neo.log" 2>&1

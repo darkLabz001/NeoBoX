@@ -17,7 +17,6 @@ from .. import config
 from ..ui import statusbar
 
 YT_CACHE = config.CACHE_DIR / "yt_thumbs"
-YT_CACHE.mkdir(parents=True, exist_ok=True)
 
 def format_views(v):
     try:
@@ -30,6 +29,7 @@ def format_views(v):
 class YoutubeSearchScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
+        YT_CACHE.mkdir(parents=True, exist_ok=True)
         self.results = []
         self.index = 0
         self.scroll = 0
