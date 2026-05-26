@@ -6,6 +6,7 @@ import subprocess
 import threading
 import io
 import hashlib
+import time
 from pathlib import Path
 
 import pygame
@@ -32,20 +33,27 @@ class CctvGalleryScreen(Screen):
     def _load_data(self):
         def worker():
             try:
+                # Use a longer timeout for the scraper
                 cmd = ["python3", str(config.PAYLOADS_DIR / "recon" / "cctv_viewer.py"), "--list"]
-                proc = subprocess.run(cmd, capture_output=True, text=True)
-                data = json.loads(proc.stdout)
-                self.results = data
-                for item in self.results:
-                    if item["thumb"] and item["thumb"] != "recon":
-                        self._load_thumb(item["thumb"])
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if proc.stdout.strip():
+                    data = json.loads(proc.stdout)
+                    self.results = data
+                    for item in self.results:
+                        if item["thumb"] and item["thumb"] != "recon":
+                            self._load_thumb(item["thumb"])
+                else:
+                    self.error = "No camera data received"
+            except subprocess.TimeoutExpired:
+                self.error = "Scraper timed out"
             except Exception as e:
-                self.error = str(e)
+                self.error = f"Scraper error: {str(e)}"
             finally:
                 self.loading = False
         threading.Thread(target=worker, daemon=True).start()
 
     def _load_thumb(self, url):
+        if not url.startswith("http"): return
         h = hashlib.md5(url.encode()).hexdigest()
         cache_path = YT_CACHE / f"cctv_{h}.jpg"
         def load():
@@ -53,10 +61,12 @@ class CctvGalleryScreen(Screen):
                 if cache_path.exists():
                     img = pygame.image.load(str(cache_path))
                 else:
-                    resp = requests.get(url, timeout=5)
-                    with open(cache_path, "wb") as f:
-                        f.write(resp.content)
-                    img = pygame.image.load(io.BytesIO(resp.content))
+                    resp = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+                    if resp.status_code == 200:
+                        with open(cache_path, "wb") as f:
+                            f.write(resp.content)
+                        img = pygame.image.load(io.BytesIO(resp.content))
+                    else: return
                 img = pygame.transform.smoothscale(img, (80, 45))
                 self.thumbs[url] = img
             except: pass
@@ -75,7 +85,6 @@ class CctvGalleryScreen(Screen):
         elif action == "A":
             if self.results:
                 cam = self.results[self.index]
-                # Pass both URL and Name
                 self.app.launch_payload(self._get_meta(), {}, cam["url"], cam["name"])
         elif action == "B":
             self.app.pop()
@@ -101,7 +110,7 @@ class CctvGalleryScreen(Screen):
 
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
-        self.app.statusbar.draw(surf, theme, "CCTV VIEWER")
+        self.app.statusbar.draw(surf, theme, "CCTV GALLERY")
         
         font = theme.font("ui")
         small = theme.font("small")
@@ -115,6 +124,9 @@ class CctvGalleryScreen(Screen):
         if self.loading:
             txt = font.render("Scraping Live Feeds...", True, dim)
             surf.blit(txt, (config.SCREEN_W // 2 - txt.get_width() // 2, ry + 40))
+            # Spinner animation
+            angle = (time.time() * 5) % 360
+            pygame.draw.arc(surf, accent, (config.SCREEN_W // 2 - 15, ry + 80, 30, 30), 0, 1.5, 3)
         elif self.error:
             txt = small.render(f"Error: {self.error}", True, theme.color("danger"))
             surf.blit(txt, (10, ry))
@@ -145,8 +157,8 @@ class CctvGalleryScreen(Screen):
                 else:
                     # Procedural placeholder
                     pygame.draw.rect(surf, theme.color("bg"), (rect.x + 4, rect.y + 3, 80, 40), border_radius=4)
-                    icon = self.app.theme.color("accent")
-                    pygame.draw.circle(surf, icon, (rect.x + 44, rect.y + 23), 4)
+                    c = (50, 50, 60)
+                    pygame.draw.circle(surf, c, (rect.x + 44, rect.y + 23), 6)
 
                 # Title
                 name = item["name"]
@@ -154,7 +166,7 @@ class CctvGalleryScreen(Screen):
                 tsurf = small.render(name, True, text)
                 surf.blit(tsurf, (rect.x + 90, rect.y + 4))
                 
-                # Type / Status
+                # Info
                 info = f"Type: {item['type'].upper()} | Status: LIVE"
                 isurf = small.render(info, True, dim)
                 surf.blit(isurf, (rect.x + 90, rect.y + 24))
@@ -162,4 +174,4 @@ class CctvGalleryScreen(Screen):
             surf.set_clip(prev_clip)
 
     def hints(self):
-        return [("B", "back"), ("A", "view")]
+        return [("B", "back"), ("A", "view"), ("LR", "pages")]
