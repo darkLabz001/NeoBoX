@@ -421,7 +421,7 @@ class App:
         pygame.display.flip()
 
     def _target_fps(self) -> int:
-        \"\"\"Cap FPS based on active screen to save CPU.\"\"\"
+        """Cap FPS based on active screen to save CPU."""
         if self._suspend_render:
             return 5
         scr = self.current
