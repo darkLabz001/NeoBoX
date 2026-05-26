@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # neo-name: CCTV Viewer
-# neo-desc: MJPEG stream viewer with zoom/pan and grid mode
+# neo-desc: Live CCTV aggregator (FL511, Opentopia, WebcamTaxi)
 # neo-icon: recon
-# neo-needs: url
-# neo-apt: python3-requests, python3-pil
+# neo-screen: cctv
+# neo-apt: python3-requests, python3-pil, mpv, yt-dlp
 # neo-input: gpio
 
 import os
@@ -18,138 +18,113 @@ from pathlib import Path
 
 import pygame
 import requests
-from PIL import Image, ImageEnhance
 
 # Configuration
 WIDTH, HEIGHT = 480, 320
-LOOT_DIR = Path.home() / "loot" / "CCTV"
-LOOT_DIR.mkdir(parents=True, exist_ok=True)
-URLS_FILE = LOOT_DIR / "cctv_live.txt"
-
 ZOOM_LEVELS = [1, 2, 4, 8]
-CHUNK_SIZE = 1024 * 16
+CHUNK_SIZE = 1024 * 32
+IPC_SOCKET = "/tmp/mpv-cctv-socket"
+REPO = Path(__file__).resolve().parents[2]
+BRIDGE = REPO / "neo" / "keybridge.py"
 
-class CCTVViewer:
-    def __init__(self, urls):
-        self.cameras = urls # List of (name, url, auth)
-        self.cam_idx = 0
+# =============================================================================
+# API / Scraper Mode
+# =============================================================================
+
+def list_cams():
+    """Scrape and aggregate live camera feeds."""
+    results = []
+
+    # 1. FL511 (ArcGIS API)
+    try:
+        # Query Florida Traffic Cameras (limit 15 for speed)
+        fl_url = "https://services1.arcgis.com/O1Jpc7z9x79mdhjt/arcgis/rest/services/FL511_Traffic_Cameras/FeatureServer/0/query"
+        params = {
+            "where": "1=1",
+            "outFields": "Camera_Name,Video_URL,Image_URL",
+            "resultRecordCount": 15,
+            "f": "json"
+        }
+        resp = requests.get(fl_url, params=params, timeout=5)
+        data = resp.json()
+        for f in data.get("features", []):
+            attr = f["attributes"]
+            if attr.get("Video_URL"):
+                results.append({
+                    "name": f"FL: {attr['Camera_Name']}",
+                    "thumb": attr.get("Image_URL"),
+                    "url": attr["Video_URL"],
+                    "type": "hls"
+                })
+    except Exception as e:
+        pass
+
+    # 2. Opentopia (Requested 15516 + others)
+    opentopia_cams = [
+        ("Nagano, JP", "15516"),
+        ("Tokyo, JP", "16031"),
+        ("Amsterdam, NL", "10191"),
+        ("Paris, FR", "9532")
+    ]
+    for name, cid in opentopia_cams:
+        results.append({
+            "name": f"Open: {name}",
+            "thumb": f"http://www.opentopia.com/images/cams/{cid}.jpg",
+            # Note: Direct MJPEG URLs often change. We'll use the Opentopia proxy if possible,
+            # but for this demo we'll target common MJPEG patterns.
+            # Real-world: needs a secondary scraper to find the 'host' link.
+            "url": f"http://www.opentopia.com/webcam/{cid}", 
+            "type": "web" # We'll handle this in the UI
+        })
+
+    # 3. WebcamTaxi (Hardcoded stable streams)
+    webcam_taxi = [
+        ("Times Square, NY", "https://www.youtube.com/watch?v=1-iS7LArMPA"),
+        ("Venice, IT", "https://www.youtube.com/watch?v=ph1vpnYIxJk")
+    ]
+    for name, url in webcam_taxi:
+        results.append({
+            "name": f"Taxi: {name}",
+            "thumb": "recon", # Fallback icon
+            "url": url,
+            "type": "hls"
+        })
+
+    print(json.dumps(results))
+
+# =============================================================================
+# MJPEG Engine (Custom Pygame)
+# =============================================================================
+
+class MJPEGViewer:
+    def __init__(self, url, name="CCTV"):
+        self.url = url
+        self.name = name
         self.running = True
-        self.streaming = False
-        self.grid_mode = False
-        
-        self.zoom_idx = 0
-        self.pan_x = 0.5
-        self.pan_y = 0.5
-        
-        self.fps = 0.0
-        self.status = "Idle"
         self.last_frame = None
         self.frame_lock = threading.Lock()
+        self.fps = 0.0
+        self.status = "Connecting..."
+        self.zoom_idx = 0
+        self.pan_x, self.pan_y = 0.5, 0.5
         
-        self.grid_frames = {} # idx -> Surface
-        self.grid_lock = threading.Lock()
-        
-        self.stop_event = threading.Event()
-        self.recording = False
-        self.rec_file = None
-        
-        # Pygame setup
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
         pygame.mouse.set_visible(False)
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("dejavusansmono", 14)
-        self.small_font = pygame.font.SysFont("dejavusansmono", 12)
 
-    def _parse_auth(self, url):
-        auth = None
-        # Check for user:pass@host
-        match = re.match(r"https?://([^/]+)@", url)
-        if match:
-            creds = match.group(1)
-            if ":" in creds:
-                user, pw = creds.split(":", 1)
-                auth = (user, pw)
-                url = url.replace(creds + "@", "")
-        return url, auth
-
-    def _stream_worker(self, url, auth):
-        self.streaming = True
-        self.status = "Connecting..."
+    def _worker(self):
         try:
-            resp = requests.get(url, auth=auth, stream=True, timeout=10)
+            resp = requests.get(self.url, stream=True, timeout=10)
             resp.raise_for_status()
-            
             buf = bytearray()
-            frame_count = 0
-            fps_start = time.time()
-            
+            fc = 0
+            t0 = time.time()
             self.status = "Streaming"
             
             for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
-                if self.stop_event.is_set() or self.grid_mode:
-                    break
-                
-                if self.recording and self.rec_file:
-                    self.rec_file.write(chunk)
-                    
-                buf.extend(chunk)
-                
-                while True:
-                    start = buf.find(b"\xff\xd8")
-                    if start < 0: break
-                    end = buf.find(b"\xff\xd9", start + 2)
-                    if end < 0: break
-                    
-                    jpg_data = buf[start:end+2]
-                    del buf[:end+2]
-                    
-                    try:
-                        img_io = io.BytesIO(jpg_data)
-                        img = pygame.image.load(img_io).convert()
-                        
-                        # Apply zoom/pan
-                        zoom = ZOOM_LEVELS[self.zoom_idx]
-                        if zoom > 1:
-                            w, h = img.get_size()
-                            zw, zh = w // zoom, h // zoom
-                            zx = int((w - zw) * self.pan_x)
-                            zy = int((h - zh) * self.pan_y)
-                            img = img.subsurface((zx, zy, zw, zh))
-                        
-                        img = pygame.transform.scale(img, (WIDTH, HEIGHT))
-                        
-                        with self.frame_lock:
-                            self.last_frame = img
-                            
-                        frame_count += 1
-                        now = time.time()
-                        if now - fps_start >= 1.0:
-                            self.fps = round(frame_count / (now - fps_start), 1)
-                            frame_count = 0
-                            fps_start = now
-                            
-                    except Exception:
-                        pass
-                        
-                if len(buf) > 1024 * 1024: # Cap buffer
-                    buf = bytearray()
-                    
-        except Exception as e:
-            self.status = f"Error: {str(e)[:20]}"
-        finally:
-            self.streaming = False
-            self.status = "Stopped"
-
-    def _grid_worker(self, idx, url, auth):
-        try:
-            resp = requests.get(url, auth=auth, stream=True, timeout=10)
-            buf = bytearray()
-            cell_w, cell_h = WIDTH // 2, HEIGHT // 2
-            
-            for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
-                if self.stop_event.is_set() or not self.grid_mode:
-                    break
+                if not self.running: break
                 buf.extend(chunk)
                 while True:
                     s = buf.find(b"\xff\xd8")
@@ -160,188 +135,101 @@ class CCTVViewer:
                     del buf[:e+2]
                     try:
                         img = pygame.image.load(io.BytesIO(jpg)).convert()
-                        img = pygame.transform.scale(img, (cell_w, cell_h))
-                        with self.grid_lock:
-                            self.grid_frames[idx] = img
+                        
+                        # Zoom
+                        zoom = ZOOM_LEVELS[self.zoom_idx]
+                        if zoom > 1:
+                            w, h = img.get_size()
+                            zw, zh = w // zoom, h // zoom
+                            zx = int((w - zw) * self.pan_x)
+                            zy = int((h - zh) * self.pan_y)
+                            img = img.subsurface((zx, zy, zw, zh))
+                        
+                        img = pygame.transform.scale(img, (WIDTH, HEIGHT))
+                        with self.frame_lock:
+                            self.last_frame = img
+                        fc += 1
+                        if time.time() - t0 >= 1.0:
+                            self.fps = round(fc / (time.time() - t0), 1)
+                            fc, t0 = 0, time.time()
                     except: pass
-                if len(buf) > 512 * 1024: buf = bytearray()
-        except: pass
+                if len(buf) > 1024*512: buf = bytearray()
+        except Exception as e:
+            self.status = f"Error: {str(e)[:20]}"
 
-    def start_stream(self):
-        self.stop_event.clear()
-        self.zoom_idx = 0
-        self.pan_x, self.pan_y = 0.5, 0.5
-        name, url, raw_auth = self.cameras[self.cam_idx]
-        url, auth = self._parse_auth(url)
-        threading.Thread(target=self._stream_worker, args=(url, auth), daemon=True).start()
+    def run(self):
+        threading.Thread(target=self._worker, daemon=True).start()
+        while self.running:
+            for event in pygame.event.get():
+                if event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_k, pygame.K_ESCAPE): self.running = False
+                    elif event.key == pygame.K_u: # Zoom
+                        self.zoom_idx = (self.zoom_idx + 1) % len(ZOOM_LEVELS)
+                    elif event.key == pygame.K_LEFT and self.zoom_idx > 0: self.pan_x = max(0, self.pan_x - 0.1)
+                    elif event.key == pygame.K_RIGHT and self.zoom_idx > 0: self.pan_x = min(1, self.pan_x + 0.1)
+                    elif event.key == pygame.K_UP and self.zoom_idx > 0: self.pan_y = max(0, self.pan_y - 0.1)
+                    elif event.key == pygame.K_DOWN and self.zoom_idx > 0: self.pan_y = min(1, self.pan_y + 0.1)
 
-    def start_grid(self):
-        self.stop_event.clear()
-        self.grid_frames.clear()
-        count = min(4, len(self.cameras))
-        for i in range(count):
-            name, url, raw_auth = self.cameras[i]
-            url, auth = self._parse_auth(url)
-            threading.Thread(target=self._grid_worker, args=(i, url, auth), daemon=True).start()
-
-    def toggle_recording(self):
-        if self.recording:
-            self.recording = False
-            if self.rec_file:
-                self.rec_file.close()
-                self.rec_file = None
-            return False
-        else:
-            name = self.cameras[self.cam_idx][0]
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = LOOT_DIR / f"{name}_{ts}.mjpeg"
-            try:
-                self.rec_file = open(path, "wb")
-                self.recording = True
-                return True
-            except:
-                return False
-
-    def draw(self):
-        self.screen.fill((10, 5, 10))
-        
-        if self.grid_mode:
-            with self.grid_lock:
-                for i in range(min(4, len(self.cameras))):
-                    x = (i % 2) * (WIDTH // 2)
-                    y = (i // 2) * (HEIGHT // 2)
-                    if i in self.grid_frames:
-                        self.screen.blit(self.grid_frames[i], (x, y))
-                    else:
-                        pygame.draw.rect(self.screen, (30, 20, 30), (x, y, WIDTH//2, HEIGHT//2), 1)
-                        txt = self.small_font.render("Loading...", True, (100, 100, 100))
-                        self.screen.blit(txt, (x + 10, y + HEIGHT//4))
-                    
-                    name = self.cameras[i][0][:12]
-                    n_surf = self.small_font.render(name, True, (0, 255, 0))
-                    self.screen.blit(n_surf, (x + 5, y + 5))
-            
-            hint = self.small_font.render("GRID | Y=Back", True, (150, 150, 150))
-            self.screen.blit(hint, (5, HEIGHT - 20))
-            
-        else:
+            self.screen.fill((0, 0, 0))
             with self.frame_lock:
-                if self.last_frame:
-                    self.screen.blit(self.last_frame, (0, 0))
+                if self.last_frame: self.screen.blit(self.last_frame, (0, 0))
                 else:
                     txt = self.font.render(self.status, True, (150, 150, 150))
                     self.screen.blit(txt, (WIDTH//2 - txt.get_width()//2, HEIGHT//2))
             
             # HUD
-            name = self.cameras[self.cam_idx][0]
-            pygame.draw.rect(self.screen, (0, 0, 0, 150), (0, 0, WIDTH, 24))
-            n_surf = self.font.render(name, True, (45, 226, 255))
-            self.screen.blit(n_surf, (10, 4))
+            pygame.draw.rect(self.screen, (0, 0, 0, 180), (0, 0, WIDTH, 24))
+            self.screen.blit(self.font.render(self.name, True, (45, 226, 255)), (10, 4))
+            self.screen.blit(self.font.render(f"{self.fps} FPS", True, (255, 200, 0)), (WIDTH-70, 4))
             
-            f_surf = self.font.render(f"{self.fps} FPS", True, (255, 200, 0))
-            self.screen.blit(f_surf, (WIDTH - 70, 4))
-            
-            if self.zoom_idx > 0:
-                z_surf = self.font.render(f"{ZOOM_LEVELS[self.zoom_idx]}x", True, (255, 100, 0))
-                self.screen.blit(z_surf, (WIDTH - 120, 4))
-                
-            if self.recording:
-                pygame.draw.circle(self.screen, (255, 0, 0), (WIDTH - 85, 12), 4)
-
-            # Help
-            hint = self.small_font.render("L/R=Cam  X=Zoom  Y=Grid  A=Rec  B=Exit", True, (100, 100, 100))
-            pygame.draw.rect(self.screen, (0, 0, 0, 150), (0, HEIGHT-20, WIDTH, 20))
-            self.screen.blit(hint, (10, HEIGHT - 18))
-
-        pygame.display.flip()
-
-    def run(self):
-        self.start_stream()
-        
-        while self.running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.running = False
-                
-                if event.type == pygame.KEYDOWN:
-                    # Map Neo Actions
-                    if event.key == pygame.K_k or event.key == pygame.K_ESCAPE: # B
-                        self.running = False
-                    
-                    elif event.key == pygame.K_u: # X (Zoom)
-                        if not self.grid_mode:
-                            self.zoom_idx = (self.zoom_idx + 1) % len(ZOOM_LEVELS)
-                            if self.zoom_idx == 0:
-                                self.pan_x, self.pan_y = 0.5, 0.5
-                                
-                    elif event.key == pygame.K_i: # Y (Grid)
-                        self.grid_mode = not self.grid_mode
-                        self.stop_event.set()
-                        time.sleep(0.2)
-                        if self.grid_mode:
-                            self.start_grid()
-                        else:
-                            self.start_stream()
-                            
-                    elif event.key == pygame.K_j or event.key == pygame.K_RETURN: # A (Rec)
-                        if not self.grid_mode:
-                            self.toggle_recording()
-                            
-                    elif event.key == pygame.K_LEFT:
-                        if self.zoom_idx > 0:
-                            self.pan_x = max(0.0, self.pan_x - 0.1)
-                        else:
-                            self.cam_idx = (self.cam_idx - 1) % len(self.cameras)
-                            self.stop_event.set()
-                            time.sleep(0.1)
-                            self.start_stream()
-                            
-                    elif event.key == pygame.K_RIGHT:
-                        if self.zoom_idx > 0:
-                            self.pan_x = min(1.0, self.pan_x + 0.1)
-                        else:
-                            self.cam_idx = (self.cam_idx + 1) % len(self.cameras)
-                            self.stop_event.set()
-                            time.sleep(0.1)
-                            self.start_stream()
-                            
-                    elif event.key == pygame.K_UP and self.zoom_idx > 0:
-                        self.pan_y = max(0.0, self.pan_y - 0.1)
-                    elif event.key == pygame.K_DOWN and self.zoom_idx > 0:
-                        self.pan_y = min(1.0, self.pan_y + 0.1)
-
-            self.draw()
+            pygame.display.flip()
             self.clock.tick(30)
-            
-        self.stop_event.set()
-        if self.rec_file: self.rec_file.close()
         pygame.quit()
 
+# =============================================================================
+# Main
+# =============================================================================
+
 def main():
-    urls = []
-    # Try to load from file
-    if URLS_FILE.exists():
-        with open(URLS_FILE, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line or "|" not in line: continue
-                parts = line.split("|")
-                # Format: Name|URL|Auth(optional)
-                name = parts[0]
-                url = parts[1]
-                auth = parts[2] if len(parts) > 2 else None
-                urls.append((name, url, auth))
-    
-    # Add the provided URL if given
-    if len(sys.argv) > 1 and sys.argv[1]:
-        urls.insert(0, ("Target", sys.argv[1], None))
-        
-    if not urls:
-        print(f"No cameras found. Add to {URLS_FILE} (Name|URL)")
+    if len(sys.argv) < 2:
         sys.exit(1)
+
+    # API Mode
+    if sys.argv[1] == "--list":
+        list_cams()
+        return
+
+    # Play Mode
+    target = sys.argv[1]
+    name = sys.argv[2] if len(sys.argv) > 2 else "CCTV"
+    
+    if target.endswith((".m3u8", ".mpd")) or "youtube" in target or "google" in target:
+        # HLS / Stream -> use mpv
+        print(f"Launching Stream: {name}")
+        import subprocess
+        import signal
         
-    viewer = CCTVViewer(urls)
-    viewer.run()
+        # Start bridge
+        bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "mpv"])
+        
+        cmd = [
+            "mpv", "--fs", "--vo=gpu", "--gpu-context=wayland", "--ao=pipewire",
+            "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]",
+            target
+        ]
+        try:
+            env = os.environ.copy()
+            env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+            env["WAYLAND_DISPLAY"] = "wayland-0"
+            subprocess.run(cmd, env=env)
+        finally:
+            try: bridge.send_signal(signal.SIGTERM)
+            except: pass
+            subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"], capture_output=True, check=False)
+    else:
+        # Assume MJPEG
+        viewer = MJPEGViewer(target, name)
+        viewer.run()
 
 if __name__ == "__main__":
     main()

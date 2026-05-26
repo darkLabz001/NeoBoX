@@ -16,16 +16,20 @@ HINT_H = 24
 class App:
     def __init__(self, mode: str = "windowed", scale: int = 2,
                  theme_name: str = config.DEFAULT_THEME, use_gpio: bool = False):
+        print("[DEBUG] App.__init__ starting")
         self.mode = mode
         self.scale = scale
         self.running = True
+        print(f"[DEBUG] Loading theme: {theme_name}")
         self.theme = theme_mod.load(theme_name)
         self._wallpaper_cache = None
         self._wallpaper_key = None
 
+        print("[DEBUG] Initializing window")
         self._init_window()
         self.logical = pygame.Surface((config.SCREEN_W, config.SCREEN_H)).convert()
 
+        print("[DEBUG] Initializing components")
         self.statusbar = statusbar.StatusBar()
         self.keyboard = KeyboardBackend()
         from .audiofx import Sfx
@@ -34,12 +38,15 @@ class App:
         self.use_gpio = use_gpio
         self.gpio = None
         if use_gpio:
+            print("[DEBUG] Initializing GPIO")
             self._init_gpio()
         
+        print("[DEBUG] Initializing remote listener")
         self._init_remote_listener()
 
         self.stack: list = []
         self.clock = pygame.time.Clock()
+        print("[DEBUG] App.__init__ finished")
         self._transition = None   # active push/pop slide animation, if any
 
     def _init_remote_listener(self):
@@ -173,6 +180,10 @@ class App:
             from .screens.youtube import YoutubeSearchScreen
             self.push(YoutubeSearchScreen(self, meta))
             return
+        if meta.get("screen") == "cctv":
+            from .screens.cctv import CctvGalleryScreen
+            self.push(CctvGalleryScreen(self))
+            return
         if meta.get("screen") == "pwnagotchi":
             from .screens.pwnagotchi import PwnagotchiScreen
             self.push(PwnagotchiScreen(self, meta))
@@ -190,11 +201,11 @@ class App:
         else:
             self.launch_payload(meta, {})
 
-    def launch_payload(self, meta: dict, params: dict, rom: str | None = None):
+    def launch_payload(self, meta: dict, params: dict, *args, rom: str | None = None):
         from .payloads import build_command
         from .screens.console import ConsoleScreen
         exclusive = meta.get("input") == "gpio"
-        cmd = build_command(meta, params, rom=rom)
+        cmd = build_command(meta, params, rom=rom, args=list(args))
         self.push(ConsoleScreen(self, {"name": meta["name"], "cmd": cmd, "mode": "capture"},
                                 exclusive=exclusive))
 

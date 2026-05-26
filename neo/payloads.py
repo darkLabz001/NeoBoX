@@ -97,7 +97,7 @@ def list_all_payloads() -> list[dict]:
     return out
 
 
-def build_command(meta: dict, params: dict, rom: str | None = None) -> str:
+def build_command(meta: dict, params: dict, rom: str | None = None, args: list[str] | None = None) -> str:
     """Compose the shell command to run a payload with collected inputs.
 
     `rom`, if given, is passed as the first positional arg (argv[1]) — game
@@ -108,6 +108,8 @@ def build_command(meta: dict, params: dict, rom: str | None = None) -> str:
     parts = []
     if rom:
         parts.append(shlex.quote(rom))
+    if args:
+        parts += [shlex.quote(a) for a in args]
     parts += [shlex.quote(params.get(n, "")) for n in meta.get("needs", [])]
     cmd = f"python3 {shlex.quote(meta['path'])} {' '.join(parts)}".strip()
     return f"{env} {cmd}".strip()
