@@ -2,7 +2,7 @@
 # neo-name: YouTube
 # neo-desc: Watch YouTube (search or URL)
 # neo-icon: media
-# neo-needs: query
+# neo-screen: youtube
 # neo-apt: mpv, yt-dlp, socat
 # neo-input: gpio
 

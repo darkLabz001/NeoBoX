@@ -147,10 +147,10 @@ class App:
         self.set_theme(names[(i + 1) % len(names)])
 
     def run_payload(self, meta: dict):
-        # YouTube custom UI
-        if meta.get("name") == "YouTube":
+        # Payloads can request a custom UI screen via `# neo-screen: <name>`.
+        if meta.get("screen") == "youtube":
             from .screens.youtube import YoutubeSearchScreen
-            self.push(YoutubeSearchScreen(self))
+            self.push(YoutubeSearchScreen(self, meta))
             return
 
         # ROM-based games: show a picker first so you choose which ROM to play.

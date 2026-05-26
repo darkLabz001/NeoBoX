@@ -36,7 +36,7 @@ def prettify(stem: str) -> str:
 def parse_meta(path: Path) -> dict:
     meta = {"path": str(path), "name": prettify(path.stem),
             "desc": "", "needs": [], "icon": None, "input": None, "apt": [],
-            "roms": None, "romext": []}
+            "roms": None, "romext": [], "screen": None}
     try:
         with open(path, "r", errors="replace") as fh:
             for _ in range(40):
@@ -59,6 +59,9 @@ def parse_meta(path: Path) -> dict:
                     meta["input"] = val.strip().lower()
                 elif key == "apt":
                     meta["apt"] = [x.strip() for x in val.split(",") if x.strip()]
+                elif key == "screen":
+                    # custom UI screen to open instead of running the script directly
+                    meta["screen"] = val.strip().lower()
                 elif key == "roms":
                     # ROM subdirectory under ~/roms (e.g. "ps1") -> shows a picker
                     meta["roms"] = val.strip()

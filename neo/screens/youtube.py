@@ -6,10 +6,10 @@ import subprocess
 import threading
 import io
 import hashlib
+import urllib.request
 from pathlib import Path
 
 import pygame
-import requests
 
 from . import Screen
 from .textinput import OnScreenKeyboard
@@ -27,8 +27,10 @@ def format_views(v):
     except: return f"{v} views"
 
 class YoutubeSearchScreen(Screen):
-    def __init__(self, app):
+    def __init__(self, app, meta=None):
         super().__init__(app)
+        self.meta = meta or {"name": "YouTube", "input": "gpio",
+                             "path": str(config.PAYLOADS_DIR / "media" / "youtube.py")}
         YT_CACHE.mkdir(parents=True, exist_ok=True)
         self.results = []
         self.index = 0
@@ -53,7 +55,7 @@ class YoutubeSearchScreen(Screen):
         elif action == "A":
             if self.results:
                 video = self.results[self.index]
-                self.app.launch_payload(self._get_meta(), {}, video["url"])
+                self.app.launch_payload(self.meta, {}, video["url"])
             else:
                 self._open_search()
         elif action == "X":
@@ -67,13 +69,6 @@ class YoutubeSearchScreen(Screen):
             self.target_scroll = self.index
         elif self.index >= self.target_scroll + 5:
             self.target_scroll = self.index - 4
-
-    def _get_meta(self):
-        return {
-            "name": "YouTube",
-            "path": str(config.PAYLOADS_DIR / "media" / "youtube.py"),
-            "input": "gpio"
-        }
 
     def _open_search(self):
         def on_done(val):
@@ -95,9 +90,9 @@ class YoutubeSearchScreen(Screen):
         try:
             cmd = ["python3", str(config.PAYLOADS_DIR / "media" / "youtube.py"), "--list", query]
             proc = subprocess.run(cmd, capture_output=True, text=True)
-            data = json.loads(proc.stdout)
+            data = json.loads(proc.stdout or "[]")
             if isinstance(data, dict) and "error" in data:
-                self.error = data["error"]
+                self.error = str(data["error"]).splitlines()[0][:60]
             else:
                 self.results = data
                 for item in self.results:
@@ -119,14 +114,14 @@ class YoutubeSearchScreen(Screen):
                 if cache_path.exists():
                     img = pygame.image.load(str(cache_path))
                 else:
-                    resp = requests.get(url, timeout=5)
-                    with open(cache_path, "wb") as f:
-                        f.write(resp.content)
-                    img = pygame.image.load(io.BytesIO(resp.content))
-                
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                    data = urllib.request.urlopen(req, timeout=5).read()
+                    cache_path.write_bytes(data)
+                    img = pygame.image.load(io.BytesIO(data))
                 img = pygame.transform.smoothscale(img, (80, 45))
                 self.thumbs[url] = img
-            except: pass
+            except Exception:
+                pass
         threading.Thread(target=load, daemon=True).start()
 
     def update(self, dt: float):
