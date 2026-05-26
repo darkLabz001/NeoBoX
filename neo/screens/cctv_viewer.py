@@ -37,19 +37,11 @@ class CctvViewerScreen(Screen):
         self.view_h = config.SCREEN_H - 80
         
         # FX State
-        self._scanline_y = 0
         self._glitch_t = 0
-        self._scanlines_surf = self._create_scanlines()
         
         self._stop_thread = False
         self._fetch_thread = None
         self._start_stream_thread()
-
-    def _create_scanlines(self):
-        s = pygame.Surface((self.view_w, self.view_h), pygame.SRCALPHA)
-        for y in range(0, self.view_h, 2):
-            pygame.draw.line(s, (0, 0, 0, 60), (0, y), (self.view_w, y))
-        return s
 
     def _start_stream_thread(self):
         self._stop_thread = False
@@ -214,7 +206,6 @@ class CctvViewerScreen(Screen):
             self._start_stream_thread()
 
     def update(self, dt: float):
-        self._scanline_y = (self._scanline_y + dt * 60) % self.view_h
         if random.random() < 0.05:
             self._glitch_t = 0.15
 
@@ -258,14 +249,6 @@ class CctvViewerScreen(Screen):
             
             surf.blit(scaled, view_rect.topleft)
             
-            # Scanlines overlay
-            surf.blit(self._scanlines_surf, view_rect.topleft)
-            
-            # Scanning bar
-            sy = view_rect.y + self._scanline_y
-            pygame.draw.line(surf, (theme.color("accent").r, theme.color("accent").g, theme.color("accent").b, 100), 
-                             (view_rect.x, sy), (view_rect.right, sy), 1)
-
             # OSD Overlay
             small = theme.font("small")
             accent = theme.color("accent")
