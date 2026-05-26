@@ -167,7 +167,7 @@ class CctvGalleryScreen(Screen):
                     # Fallback Placeholder
                     pygame.draw.rect(surf, theme.color("bg"), (rect.x + 4, rect.y + 3, 80, 40), border_radius=4)
                     icon_name = "recon"
-                    icon = assets.load_icon(icon_name, (20, 20))
+                    icon = assets.load_icon_image(icon_name, 20)
                     if icon:
                         surf.blit(icon, (rect.x + 34, rect.y + 13))
 
