@@ -7,10 +7,12 @@
 # neo-input: gpio
 
 import os
-# Suppress pygame and other console noise
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-
 import sys
+
+# NUCLEAR SUPPRESSION: Silence ALL noise before importing anything else
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+sys.stderr = open(os.devnull, 'w') # Redirect all stderr to null
+
 import json
 import time
 import threading
@@ -21,7 +23,6 @@ from pathlib import Path
 from collections import deque
 
 import requests
-# Suppress urllib3 warnings
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -84,8 +85,9 @@ def list_cams():
             "type": "mjpeg"
         })
 
-    # Output only JSON to stdout
-    sys.stdout.write(json.dumps(results))
+    # RESTORE STDOUT JUST FOR THE JSON
+    sys.stdout = sys.__stdout__
+    print(json.dumps(results))
     sys.stdout.flush()
 
 # =============================================================================

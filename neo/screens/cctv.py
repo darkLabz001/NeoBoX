@@ -1,4 +1,4 @@
-"""CCTV Gallery screen with improved thumbnail loading and reliability."""
+"""CCTV Gallery screen with improved thumbnail loading and noise-filtering."""
 from __future__ import annotations
 
 import json
@@ -12,6 +12,9 @@ from queue import Queue
 
 import pygame
 import requests
+# Suppress warnings in the UI process too
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 from . import Screen
 from .. import config, assets
@@ -38,19 +41,20 @@ class CctvGalleryScreen(Screen):
         self.results = []
         def worker():
             try:
-                # Suppression of all noise in backend should be solid now
                 cmd = ["python3", str(config.PAYLOADS_DIR / "recon" / "cctv_viewer.py"), "--list"]
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 
-                # Check for errors in stderr too
                 if proc.returncode != 0:
                     self.error = f"Backend error ({proc.returncode})"
                     return
 
+                # ROBUST PARSING: Find the start of the JSON list
                 out = proc.stdout.strip()
-                if out:
+                start_idx = out.find("[")
+                if start_idx != -1:
+                    json_str = out[start_idx:]
                     try:
-                        data = json.loads(out)
+                        data = json.loads(json_str)
                         self.results = data
                         if not self.results:
                             self.error = "No cameras found"
@@ -60,11 +64,11 @@ class CctvGalleryScreen(Screen):
                                 if turl and turl.startswith("http"):
                                     self._request_thumb(turl)
                     except json.JSONDecodeError:
-                        self.error = "Data corruption error"
+                        self.error = "JSON parse failed"
                 else:
-                    self.error = "No data from backend"
+                    self.error = "Invalid backend output"
             except Exception as e:
-                self.error = f"Scraper crash: {str(e)[:25]}"
+                self.error = f"Crash: {str(e)[:20]}"
             finally:
                 self.loading = False
         threading.Thread(target=worker, daemon=True).start()
@@ -75,7 +79,6 @@ class CctvGalleryScreen(Screen):
         
         def load():
             try:
-                # Use a cached version if it's less than 1 hour old to keep it "fresh"
                 if cache_path.exists() and (time.time() - cache_path.stat().st_mtime < 3600):
                     with open(cache_path, "rb") as f:
                         data = f.read()
@@ -94,11 +97,9 @@ class CctvGalleryScreen(Screen):
 
     def on_action(self, action: str):
         if self.loading: return
-        
-        if action == "X": # Manual Refresh
+        if action == "X":
             self._load_data()
             return
-
         if action == "UP":
             if self.results: 
                 self.index = (self.index - 1) % len(self.results)
@@ -129,7 +130,6 @@ class CctvGalleryScreen(Screen):
 
     def update(self, dt: float):
         self.scroll += (self.target_scroll - self.scroll) * 0.2
-        
         while not self._thumb_queue.empty():
             url, data = self._thumb_queue.get()
             try:
@@ -157,18 +157,10 @@ class CctvGalleryScreen(Screen):
         if self.loading:
             txt = font.render("Scraping World Feeds...", True, dim)
             surf.blit(txt, (config.SCREEN_W // 2 - txt.get_width() // 2, ry + 40))
-            # Spinner
-            p = (time.time() * 10) % 100
-            pygame.draw.rect(surf, accent, (config.SCREEN_W//2 - 50, ry + 80, p, 4), border_radius=2)
-            
         elif self.error:
             txt = font.render(f"Error: {self.error}", True, theme.color("danger"))
             surf.blit(txt, (config.SCREEN_W // 2 - txt.get_width() // 2, ry + 40))
-            hint = small.render("Press X to retry", True, dim)
-            surf.blit(hint, (config.SCREEN_W // 2 - hint.get_width() // 2, ry + 70))
-            
         elif self.results:
-            # Scrollbar - DIV BY ZERO SAFE
             if len(self.results) > 5:
                 pygame.draw.rect(surf, theme.color("tile"), (config.SCREEN_W - 8, ry, 4, area.height), border_radius=2)
                 scroll_h = max(10, (5 / len(self.results)) * area.height)
@@ -188,26 +180,22 @@ class CctvGalleryScreen(Screen):
                 if sel:
                     pygame.draw.rect(surf, accent, rect, width=1, border_radius=6)
                 
-                # Thumbnail
                 turl = item.get("thumb")
                 if turl in self.thumbs:
                     surf.blit(self.thumbs[turl], (rect.x + 4, rect.y + 1))
                 else:
-                    # Fallback icon
                     pygame.draw.rect(surf, theme.color("bg"), (rect.x + 4, rect.y + 3, 80, 40), border_radius=4)
                     icon_name = "recon"
                     icon = assets.load_icon_image(icon_name, 20)
                     if icon:
                         surf.blit(icon, (rect.x + 34, rect.y + 13))
 
-                # Title
                 name = item["name"]
                 if len(name) > 42: name = name[:39] + "..."
                 tsurf = small.render(name, True, text)
                 surf.blit(tsurf, (rect.x + 90, rect.y + 4))
                 
-                # Info
-                ctype = item.get('type', 'mjpeg').upper()
+                ctype = item.get('type', 'hls').upper()
                 info = f"{ctype} | LIVE"
                 isurf = small.render(info, True, dim)
                 surf.blit(isurf, (rect.x + 90, rect.y + 24))
