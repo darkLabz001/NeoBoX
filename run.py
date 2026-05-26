@@ -31,14 +31,18 @@ def main():
         os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
     import pygame
+    print("[DEBUG] pygame init...")
     pygame.init()
+    print("[DEBUG] pygame font init...")
     pygame.font.init()
 
     from neo.app import App
     from neo.screens.home import HomeScreen
 
     kwargs = {"theme_name": args.theme} if args.theme else {}
+    print("[DEBUG] App instance creation...")
     app = App(mode=args.mode, scale=args.scale, use_gpio=args.gpio, **kwargs)
+    print("[DEBUG] App instance created.")
     if args.intro or (not args.screenshot and not args.no_intro):
         from neo.screens.intro import IntroScreen
         app.push(IntroScreen(app))
@@ -49,6 +53,7 @@ def main():
         acts = [a.strip().upper() for a in args.actions.split(",") if a.strip()]
         app.snapshot(args.screenshot, acts, settle=args.settle)
     else:
+        print("[DEBUG] app.run()...")
         app.run()
 
 

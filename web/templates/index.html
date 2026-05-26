@@ -3,23 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NeoBox Management Console</title>
+    <title>NEOBOX | Management Console</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <header>
-        <div class="logo">NEO<span class="highlight">BOX</span></div>
+        <div class="logo">NEO<span class="highlight">BOX</span> <span class="version">v2.0</span></div>
         <div class="system-mini-stats">
-            <div class="stat-item"><i class="fas fa-microchip"></i> <span id="cpu-mini">0%</span></div>
-            <div class="stat-item"><i class="fas fa-thermometer-half"></i> <span id="temp-mini">0°C</span></div>
+            <div class="stat-item" title="CPU Usage"><i class="fas fa-microchip"></i> <span id="cpu-mini">0%</span></div>
+            <div class="stat-item" title="System Temp"><i class="fas fa-thermometer-half"></i> <span id="temp-mini">0°C</span></div>
+            <div class="stat-item" title="Uptime"><i class="fas fa-clock"></i> <span id="uptime-mini">00:00</span></div>
         </div>
         <nav>
-            <button onclick="showSection('dashboard')" title="Dashboard"><i class="fas fa-tachometer-alt"></i></button>
-            <button onclick="showSection('remote')" title="Remote Control"><i class="fas fa-gamepad"></i></button>
-            <button onclick="showSection('terminal')" title="Terminal"><i class="fas fa-terminal"></i></button>
-            <button onclick="showSection('files')" title="Files"><i class="fas fa-folder-open"></i></button>
+            <button onclick="showSection('dashboard')" id="nav-dashboard" title="Dashboard"><i class="fas fa-tachometer-alt"></i> <span>Stats</span></button>
+            <button onclick="showSection('remote')" id="nav-remote" title="Remote Control"><i class="fas fa-gamepad"></i> <span>Remote</span></button>
+            <button onclick="showSection('terminal')" id="nav-terminal" title="Terminal"><i class="fas fa-terminal"></i> <span>Shell</span></button>
+            <button onclick="showSection('files')" id="nav-files" title="Files"><i class="fas fa-folder-open"></i> <span>Files</span></button>
         </nav>
     </header>
 
@@ -28,99 +29,157 @@
         <section id="dashboard-section" class="active">
             <div class="grid-layout">
                 <div class="card stat-card">
-                    <h3><i class="fas fa-microchip"></i> CPU Usage</h3>
+                    <div class="card-header">
+                        <h3><i class="fas fa-microchip"></i> CPU Load</h3>
+                        <span class="val" id="cpu-val">0%</span>
+                    </div>
                     <div class="gauge-container">
                         <div class="gauge-bar" id="cpu-bar" style="width: 0%"></div>
-                        <span id="cpu-val">0%</span>
                     </div>
                 </div>
                 <div class="card stat-card">
-                    <h3><i class="fas fa-memory"></i> RAM Usage</h3>
+                    <div class="card-header">
+                        <h3><i class="fas fa-memory"></i> RAM Usage</h3>
+                        <span class="val" id="ram-val">0%</span>
+                    </div>
                     <div class="gauge-container">
                         <div class="gauge-bar" id="ram-bar" style="width: 0%"></div>
-                        <span id="ram-val">0%</span>
                     </div>
                 </div>
                 <div class="card stat-card">
-                    <h3><i class="fas fa-thermometer-half"></i> Temperature</h3>
-                    <div class="stat-big"><span id="temp-val">0</span>°C</div>
+                    <div class="card-header">
+                        <h3><i class="fas fa-hdd"></i> Disk Space</h3>
+                        <span class="val" id="disk-val">0%</span>
+                    </div>
+                    <div class="gauge-container">
+                        <div class="gauge-bar" id="disk-bar" style="width: 0%"></div>
+                    </div>
                 </div>
                 <div class="card stat-card">
-                    <h3><i class="fas fa-clock"></i> Uptime</h3>
-                    <div class="stat-big" id="uptime-val">00:00:00</div>
+                    <div class="card-header">
+                        <h3><i class="fas fa-thermometer-half"></i> Temperature</h3>
+                    </div>
+                    <div class="stat-big"><span id="temp-val">0</span>°C</div>
+                </div>
+            </div>
+            
+            <div class="system-details card mt-2">
+                <h3><i class="fas fa-info-circle"></i> System Information</h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <label>Load Average:</label>
+                        <span id="load-val">0.00, 0.00, 0.00</span>
+                    </div>
+                    <div class="detail-item">
+                        <label>Active Uptime:</label>
+                        <span id="uptime-val">00:00:00</span>
+                    </div>
                 </div>
             </div>
         </section>
 
         <!-- Remote Section -->
         <section id="remote-section">
-            <div class="remote-layout">
-                <div class="dpad">
-                    <button class="btn-d" id="btn-UP" onclick="sendAction('UP')"><i class="fas fa-caret-up"></i></button>
-                    <button class="btn-d" id="btn-LEFT" onclick="sendAction('LEFT')"><i class="fas fa-caret-left"></i></button>
-                    <button class="btn-d" id="btn-RIGHT" onclick="sendAction('RIGHT')"><i class="fas fa-caret-right"></i></button>
-                    <button class="btn-d" id="btn-DOWN" onclick="sendAction('DOWN')"><i class="fas fa-caret-down"></i></button>
+            <div class="remote-container">
+                <div class="remote-device">
+                    <div class="shoulder-buttons">
+                        <button class="btn-meta" onclick="sendAction('L')">L</button>
+                        <button class="btn-meta" onclick="sendAction('R')">R</button>
+                    </div>
+                    
+                    <div class="main-controls">
+                        <div class="dpad">
+                            <button class="btn-d" id="btn-UP" onclick="sendAction('UP')"><i class="fas fa-caret-up"></i></button>
+                            <button class="btn-d" id="btn-LEFT" onclick="sendAction('LEFT')"><i class="fas fa-caret-left"></i></button>
+                            <button class="btn-d" id="btn-RIGHT" onclick="sendAction('RIGHT')"><i class="fas fa-caret-right"></i></button>
+                            <button class="btn-d" id="btn-DOWN" onclick="sendAction('DOWN')"><i class="fas fa-caret-down"></i></button>
+                        </div>
+                        
+                        <div class="center-buttons">
+                            <button class="btn-pill" onclick="sendAction('SELECT')">SELECT</button>
+                            <button class="btn-pill" onclick="sendAction('START')">START</button>
+                            <div class="logo-small">NEO</div>
+                            <button class="btn-pill accent" onclick="sendAction('MENU')">MENU</button>
+                            <button class="btn-pill danger" onclick="sendAction('EXIT')">EXIT</button>
+                        </div>
+
+                        <div class="action-buttons">
+                            <button class="btn-a color-y" onclick="sendAction('Y')">Y</button>
+                            <div class="ab-row">
+                                <button class="btn-a color-x" onclick="sendAction('X')">X</button>
+                                <button class="btn-a color-b" onclick="sendAction('B')">B</button>
+                            </div>
+                            <button class="btn-a color-a" onclick="sendAction('A')">A</button>
+                        </div>
+                    </div>
                 </div>
-                <div class="action-buttons">
-                    <button class="btn-a color-a" onclick="sendAction('A')">A</button>
-                    <button class="btn-a color-b" onclick="sendAction('B')">B</button>
-                    <button class="btn-a color-x" onclick="sendAction('X')">X</button>
-                    <button class="btn-a color-y" onclick="sendAction('Y')">Y</button>
-                </div>
-                <div class="meta-buttons">
-                    <button onclick="sendAction('SELECT')">SELECT</button>
-                    <button onclick="sendAction('START')">START</button>
-                    <button onclick="sendAction('MENU')">MENU</button>
-                    <button onclick="sendAction('EXIT')">EXIT</button>
-                </div>
-                <div class="shoulder-buttons">
-                    <button onclick="sendAction('L')">L</button>
-                    <button onclick="sendAction('R')">R</button>
+                <div class="remote-hints card">
+                    <h3><i class="fas fa-keyboard"></i> Shortcuts</h3>
+                    <p>Arrows: D-Pad | Enter: A | Esc: B | S: Start | A: Select</p>
                 </div>
             </div>
         </section>
 
         <!-- Terminal Section -->
         <section id="terminal-section">
-            <div id="terminal"></div>
+            <div class="terminal-toolbar">
+                <div class="term-status"><i class="fas fa-circle text-success"></i> connected: bash</div>
+                <button onclick="reconnectTerminal()" title="Restart Shell"><i class="fas fa-sync-alt"></i> Reset</button>
+            </div>
+            <div id="terminal-container">
+                <div id="terminal"></div>
+            </div>
         </section>
 
         <!-- Files Section -->
         <section id="files-section">
             <div class="files-layout">
                 <div class="card upload-container">
-                    <h3><i class="fas fa-upload"></i> Upload</h3>
+                    <h3><i class="fas fa-cloud-upload-alt"></i> New Upload</h3>
                     <form id="upload-form">
-                        <div class="input-group">
-                            <label>Target:</label>
+                        <div class="form-group">
+                            <label>File Target</label>
                             <select name="type" id="upload-type">
                                 <option value="rom">PS1 ROM (~/roms/ps1)</option>
                                 <option value="payload">Payload (payloads/custom/)</option>
                             </select>
                         </div>
-                        <div class="input-group">
-                            <input type="file" name="file" id="file-input">
+                        <div class="file-drop-zone" id="drop-zone">
+                            <i class="fas fa-file-import"></i>
+                            <p>Click or drag file here</p>
+                            <input type="file" name="file" id="file-input" hidden>
                         </div>
-                        <button type="submit" class="btn-primary">Upload File</button>
+                        <div id="file-info" class="mt-1"></div>
+                        <button type="submit" class="btn-primary">Upload to Device</button>
                     </form>
-                    <div id="upload-status"></div>
+                    <div id="upload-status" class="mt-1"></div>
                 </div>
 
                 <div class="card file-list-container">
-                    <h3><i class="fas fa-list"></i> Managed Files</h3>
-                    <div class="filter-tabs">
-                        <button onclick="loadFiles('roms')" class="active" id="tab-roms">ROMs</button>
-                        <button onclick="loadFiles('payloads')" id="tab-payloads">Payloads</button>
+                    <div class="card-header">
+                        <h3><i class="fas fa-database"></i> File Manager</h3>
+                        <div class="filter-tabs">
+                            <button onclick="loadFiles('roms')" class="active" id="tab-roms">ROMs</button>
+                            <button onclick="loadFiles('payloads')" id="tab-payloads">Payloads</button>
+                        </div>
                     </div>
-                    <ul id="file-list"></ul>
+                    <div class="file-table-header">
+                        <span>Name</span>
+                        <span>Size</span>
+                        <span>Action</span>
+                    </div>
+                    <ul id="file-list" class="file-list"></ul>
                 </div>
             </div>
         </section>
     </main>
 
+    <div id="toast-container"></div>
+
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.8.0/lib/xterm-addon-web-links.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
