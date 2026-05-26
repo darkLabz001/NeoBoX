@@ -40,6 +40,7 @@ class App:
 
         self.stack: list = []
         self.clock = pygame.time.Clock()
+        self._transition = None   # active push/pop slide animation, if any
 
     def _init_remote_listener(self):
         """Start a UDP listener for remote actions (Web UI)."""
@@ -123,11 +124,24 @@ class App:
 
     # --- screen stack ---------------------------------------------------
     def push(self, screen):
+        # Slide the new screen in (skip for overlays, which draw their own backdrop).
+        if not getattr(screen, "overlay", False):
+            self._begin_transition("push")
         self.stack.append(screen)
 
     def pop(self):
         if len(self.stack) > 1:
+            if not getattr(self.current, "overlay", False):
+                self._begin_transition("pop")
             self.stack.pop()
+
+    def _begin_transition(self, kind: str):
+        # Snapshot the current frame to slide against. Skipped headless (dev
+        # screenshots) and before the first screen exists.
+        if self.mode == "headless" or not self.stack:
+            return
+        self._transition = {"kind": kind, "t0": time.monotonic(),
+                            "dur": 0.16, "prev": self.logical.copy()}
 
     @property
     def current(self):
@@ -391,6 +405,25 @@ class App:
         self.current.draw(self.logical, self.theme)
         if not getattr(self.current, "hide_hints", False):
             self._draw_hints(self.logical, self.theme)
+        if self._transition:
+            self._apply_transition()
+
+    def _apply_transition(self):
+        """Composite a horizontal slide between the previous frame and the
+        freshly-drawn current screen."""
+        tr = self._transition
+        p = min(1.0, (time.monotonic() - tr["t0"]) / tr["dur"])
+        ep = 1 - (1 - p) ** 3          # ease-out
+        w = config.SCREEN_W
+        cur = self.logical.copy()      # the screen we just drew
+        if tr["kind"] == "push":       # new screen slides in from the right over the old
+            self.logical.blit(tr["prev"], (0, 0))
+            self.logical.blit(cur, (int(w * (1 - ep)), 0))
+        else:                          # pop: the outgoing screen slides off to the right
+            self.logical.blit(cur, (0, 0))
+            self.logical.blit(tr["prev"], (int(w * ep), 0))
+        if p >= 1.0:
+            self._transition = None
 
     def present(self):
         if self.mode == "headless":
@@ -425,7 +458,8 @@ class App:
             try:
                 self._pump_events()
                 now = time.monotonic()
-                animating = getattr(self.current, "is_animating", lambda: False)()
+                animating = getattr(self.current, "is_animating", lambda: False)() \
+                    or self._transition is not None
                 if self._dirty or animating or (now - last_render) >= 0.5:
                     self.render(1.0 / config.FPS)
                     self.present()
