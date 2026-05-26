@@ -173,6 +173,10 @@ class App:
             from .screens.youtube import YoutubeSearchScreen
             self.push(YoutubeSearchScreen(self, meta))
             return
+        if meta.get("screen") == "pwnagotchi":
+            from .screens.pwnagotchi import PwnagotchiScreen
+            self.push(PwnagotchiScreen(self, meta))
+            return
 
         # ROM-based games: show a picker first so you choose which ROM to play.
         if meta.get("roms"):
