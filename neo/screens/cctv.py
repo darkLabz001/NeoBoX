@@ -19,11 +19,12 @@ from . import Screen
 from .. import config, assets
 from ..ui import statusbar
 
-YT_CACHE = config.CACHE_DIR / "yt_thumbs"
+CCTV_CACHE = config.CACHE_DIR / "cctv_thumbs"
 
 class CctvGalleryScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
+        CCTV_CACHE.mkdir(parents=True, exist_ok=True)
         self.results = []
         self.index = 0
         self.scroll = 0
@@ -66,7 +67,7 @@ class CctvGalleryScreen(Screen):
 
     def _request_thumb(self, url):
         h = hashlib.md5(url.encode()).hexdigest()
-        cache_path = YT_CACHE / f"cctv_{h}.jpg"
+        cache_path = CCTV_CACHE / f"cctv_{h}.jpg"
         def load():
             try:
                 if cache_path.exists() and (time.time() - cache_path.stat().st_mtime < 3600):
