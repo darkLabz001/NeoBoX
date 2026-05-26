@@ -112,6 +112,13 @@ class App:
         import subprocess
         subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"],
                        capture_output=True)
+        # Drop any actions that queued up while the game owned the screen, so
+        # stale/phantom inputs don't fire the moment we resume.
+        try:
+            while True:
+                self.action_queue.get_nowait()
+        except Exception:
+            pass
         self.resume_gpio()
 
     # --- screen stack ---------------------------------------------------
@@ -415,14 +422,26 @@ class App:
             if self._suspend_render:        # a game owns the screen; stay out of its way
                 time.sleep(0.15)
                 continue
-            self._pump_events()
-            now = time.monotonic()
-            animating = getattr(self.current, "is_animating", lambda: False)()
-            if self._dirty or animating or (now - last_render) >= 0.5:
-                self.render(1.0 / config.FPS)
-                self.present()
-                self._dirty = False
-                last_render = now
+            try:
+                self._pump_events()
+                now = time.monotonic()
+                animating = getattr(self.current, "is_animating", lambda: False)()
+                if self._dirty or animating or (now - last_render) >= 0.5:
+                    self.render(1.0 / config.FPS)
+                    self.present()
+                    self._dirty = False
+                    last_render = now
+            except Exception:
+                # A screen blew up (bad input handler, draw, payload launch…).
+                # Don't take the whole UI down: log it and drop back to a screen
+                # that works (the parent, or home) so the device stays usable.
+                import traceback
+                traceback.print_exc()
+                if len(self.stack) > 1:
+                    self.stack.pop()
+                else:
+                    self.go_home()
+                self._dirty = True
         if self.gpio:
             self.gpio.stop()
         pygame.quit()
