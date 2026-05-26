@@ -36,6 +36,26 @@ def list_cams():
     """Aggregated camera list."""
     results = []
     
+    # 0. BigBox Verified (High reliability)
+    bigbox = [
+        ("Avalon Golf", "http://74.95.172.65:8100/axis-cgi/mjpg/video.cgi", "mjpeg"),
+        ("Norway Coast", "http://78.31.82.246/mjpg/video.mjpg", "mjpeg"),
+        ("Playa Levante", "http://212.170.100.189/mjpg/video.mjpg", "mjpeg"),
+        ("Airport USA", "http://199.104.253.4/mjpg/video.mjpg", "mjpeg"),
+        ("Madrid, ESP", "http://83.48.75.113:8320/axis-cgi/mjpg/video.cgi", "mjpeg"),
+        ("Stelvio Pass", "https://jpeg.popso.it/webcam/webcam_online/stelviolive_05.jpg", "snapshot"),
+        ("Fair Harbor", "http://webcam.fairharbormarina.com/nphMotionJpeg?Resolution=640x480", "mjpeg"),
+        ("Seattle 1st & Denny", "https://61e0c5d388c2e.streamlock.net:443/live/1_N_Denny_EW.stream/playlist.m3u8", "hls"),
+        ("Seattle 3rd & Denny", "https://61e0c5d388c2e.streamlock.net:443/live/3_N_Denny_EW.stream/playlist.m3u8", "hls"),
+        ("Seattle Elliott & Broad", "https://61e0c5d388c2e.streamlock.net:443/live/Elliott_Broad_NS.stream/playlist.m3u8", "hls"),
+    ]
+    for name, url, ctype in bigbox:
+        results.append({
+            "name": f"Box: {name}",
+            "thumb": "recon",
+            "url": url, "type": ctype
+        })
+
     # 1. Skyline (Standard world feeds)
     skyline = [
         ("Times Square", "https://www.skylinewebcams.com/en/webcam/united-states/new-york/new-york/times-square.html"),

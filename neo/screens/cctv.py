@@ -94,8 +94,9 @@ class CctvGalleryScreen(Screen):
                 self._ensure_visible()
         elif action == "A":
             if self.results:
+                from .cctv_viewer import CctvViewerScreen
                 cam = self.results[self.index]
-                self.app.launch_payload(self._get_meta(), {}, cam["url"], cam["name"])
+                self.app.push(CctvViewerScreen(self.app, cam))
         elif action == "B":
             self.app.pop()
 
