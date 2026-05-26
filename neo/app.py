@@ -27,7 +27,7 @@ class App:
 
         print("[DEBUG] Initializing window")
         self._init_window()
-        self.logical = pygame.Surface((config.SCREEN_W, config.SCREEN_H)).convert()
+        self.logical = pygame.Surface((config.SCREEN_W, config.SCREEN_H))
 
         print("[DEBUG] Initializing components")
         self.statusbar = statusbar.StatusBar()

@@ -111,7 +111,7 @@ def load_background(name: str, size: tuple[int, int]):
 def vgradient(size: tuple[int, int], top: pygame.Color, bottom: pygame.Color) -> pygame.Surface:
     """Vertical gradient surface, used for the wallpaper."""
     w, h = size
-    surf = pygame.Surface(size).convert()
+    surf = pygame.Surface(size)
     for y in range(h):
         t = y / max(1, h - 1)
         c = (
