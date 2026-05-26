@@ -169,6 +169,10 @@ class App:
             from .screens.pwnagotchi import PwnagotchiScreen
             self.push(PwnagotchiScreen(self, meta))
             return
+        if screen_req == "loot":
+            from .screens.loot import LootScreen
+            self.push(LootScreen(self))
+            return
 
         # ROM-based games: show a picker first so you choose which ROM to play.
         if meta.get("roms"):

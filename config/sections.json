@@ -10,6 +10,7 @@
     {"name": "Games",     "id": "games",     "icon": "games"},
     {"name": "System",    "id": "system",    "icon": "system"},
     {"name": "Media",     "id": "media",     "icon": "media"},
+    {"name": "Loot",      "id": "loot",      "icon": "settings"},
     {"name": "Settings",  "id": "settings",  "icon": "settings", "builtin": true}
   ]
 }
