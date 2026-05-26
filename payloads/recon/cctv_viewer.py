@@ -7,6 +7,10 @@
 # neo-input: gpio
 
 import os
+
+# Suppress pygame welcome message
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+
 import sys
 import json
 import time
@@ -16,8 +20,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-import pygame
 import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # Configuration
 WIDTH, HEIGHT = 480, 320
@@ -28,6 +33,28 @@ REPO = Path(__file__).resolve().parents[2]
 BRIDGE = REPO / "neo" / "keybridge.py"
 
 # =============================================================================
+# Scraper Helpers
+# =============================================================================
+
+def resolve_opentopia(url):
+    """Try to find the host URL from an Opentopia page."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, headers=headers, timeout=5)
+        # Look for the 'Host:' link or common MJPEG paths
+        match = re.search(r'href="([^"]+)"[^>]*>Host', resp.text)
+        if match:
+            host_url = match.group(1)
+            if host_url.endswith("/"): host_url = host_url[:-1]
+            # Common Axis path
+            if "/axis-cgi" not in host_url:
+                return f"{host_url}/axis-cgi/mjpg/video.cgi"
+            return host_url
+        return url
+    except:
+        return url
+
+# =============================================================================
 # API / Scraper Mode
 # =============================================================================
 
@@ -35,28 +62,32 @@ def list_cams():
     """Scrape and aggregate live camera feeds."""
     results = []
 
-    # 1. FL511 (ArcGIS API)
+    # 1. FL511 (ArcGIS API - Using MSEU Org ID)
     try:
-        # Query Florida Traffic Cameras (limit 15 for speed)
-        fl_url = "https://services1.arcgis.com/O1Jpc7z9x79mdhjt/arcgis/rest/services/FL511_Traffic_Cameras/FeatureServer/0/query"
+        fl_url = "https://services1.arcgis.com/0MSEUqKaxRlEPjhp/arcgis/rest/services/FL511_Traffic_Cameras/FeatureServer/0/query"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         params = {
             "where": "1=1",
-            "outFields": "Camera_Name,Video_URL,Image_URL",
-            "resultRecordCount": 15,
+            "outFields": "CameraName,VideoURL,SnapshotURL",
+            "resultRecordCount": 20,
             "f": "json"
         }
-        resp = requests.get(fl_url, params=params, timeout=5)
+        resp = requests.get(fl_url, params=params, timeout=10, verify=False, headers=headers)
         data = resp.json()
         for f in data.get("features", []):
             attr = f["attributes"]
-            if attr.get("Video_URL"):
+            name = attr.get("CameraName") or "FL Traffic"
+            video = attr.get("VideoURL")
+            thumb = attr.get("SnapshotURL")
+            
+            if video and video.startswith("http"):
                 results.append({
-                    "name": f"FL: {attr['Camera_Name']}",
-                    "thumb": attr.get("Image_URL"),
-                    "url": attr["Video_URL"],
+                    "name": f"FL: {name}",
+                    "thumb": thumb,
+                    "url": video,
                     "type": "hls"
                 })
-    except Exception as e:
+    except:
         pass
 
     # 2. Opentopia (Requested 15516 + others)
@@ -70,11 +101,8 @@ def list_cams():
         results.append({
             "name": f"Open: {name}",
             "thumb": f"http://www.opentopia.com/images/cams/{cid}.jpg",
-            # Note: Direct MJPEG URLs often change. We'll use the Opentopia proxy if possible,
-            # but for this demo we'll target common MJPEG patterns.
-            # Real-world: needs a secondary scraper to find the 'host' link.
             "url": f"http://www.opentopia.com/webcam/{cid}", 
-            "type": "web" # We'll handle this in the UI
+            "type": "mjpeg"
         })
 
     # 3. WebcamTaxi (Hardcoded stable streams)
@@ -85,7 +113,7 @@ def list_cams():
     for name, url in webcam_taxi:
         results.append({
             "name": f"Taxi: {name}",
-            "thumb": "recon", # Fallback icon
+            "thumb": "recon",
             "url": url,
             "type": "hls"
         })
@@ -98,13 +126,14 @@ def list_cams():
 
 class MJPEGViewer:
     def __init__(self, url, name="CCTV"):
+        import pygame
         self.url = url
         self.name = name
         self.running = True
         self.last_frame = None
         self.frame_lock = threading.Lock()
         self.fps = 0.0
-        self.status = "Connecting..."
+        self.status = "Initializing..."
         self.zoom_idx = 0
         self.pan_x, self.pan_y = 0.5, 0.5
         
@@ -115,8 +144,17 @@ class MJPEGViewer:
         self.font = pygame.font.SysFont("dejavusansmono", 14)
 
     def _worker(self):
+        import pygame
+        
+        target_url = self.url
+        if "opentopia.com" in target_url:
+            self.status = "Resolving host..."
+            target_url = resolve_opentopia(target_url)
+
+        self.status = f"Connecting to {target_url[:20]}..."
         try:
-            resp = requests.get(self.url, stream=True, timeout=10)
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            resp = requests.get(target_url, stream=True, timeout=15, headers=headers)
             resp.raise_for_status()
             buf = bytearray()
             fc = 0
@@ -136,7 +174,6 @@ class MJPEGViewer:
                     try:
                         img = pygame.image.load(io.BytesIO(jpg)).convert()
                         
-                        # Zoom
                         zoom = ZOOM_LEVELS[self.zoom_idx]
                         if zoom > 1:
                             w, h = img.get_size()
@@ -153,11 +190,12 @@ class MJPEGViewer:
                             self.fps = round(fc / (time.time() - t0), 1)
                             fc, t0 = 0, time.time()
                     except: pass
-                if len(buf) > 1024*512: buf = bytearray()
+                if len(buf) > 1024*1024: buf = bytearray()
         except Exception as e:
-            self.status = f"Error: {str(e)[:20]}"
+            self.status = f"Err: {str(e)[:25]}"
 
     def run(self):
+        import pygame
         threading.Thread(target=self._worker, daemon=True).start()
         while self.running:
             for event in pygame.event.get():
@@ -170,7 +208,7 @@ class MJPEGViewer:
                     elif event.key == pygame.K_UP and self.zoom_idx > 0: self.pan_y = max(0, self.pan_y - 0.1)
                     elif event.key == pygame.K_DOWN and self.zoom_idx > 0: self.pan_y = min(1, self.pan_y + 0.1)
 
-            self.screen.fill((0, 0, 0))
+            self.screen.fill((10, 5, 10))
             with self.frame_lock:
                 if self.last_frame: self.screen.blit(self.last_frame, (0, 0))
                 else:
@@ -203,15 +241,10 @@ def main():
     target = sys.argv[1]
     name = sys.argv[2] if len(sys.argv) > 2 else "CCTV"
     
-    if target.endswith((".m3u8", ".mpd")) or "youtube" in target or "google" in target:
-        # HLS / Stream -> use mpv
-        print(f"Launching Stream: {name}")
+    if target.endswith((".m3u8", ".mpd")) or "youtube" in target or "google" in target or ".ts" in target:
         import subprocess
         import signal
-        
-        # Start bridge
         bridge = subprocess.Popen(["sudo", "-n", "python3", str(BRIDGE), "mpv"])
-        
         cmd = [
             "mpv", "--fs", "--vo=gpu", "--gpu-context=wayland", "--ao=pipewire",
             "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]",
@@ -227,7 +260,6 @@ def main():
             except: pass
             subprocess.run(["sudo", "-n", "pkill", "-f", "keybridge.py"], capture_output=True, check=False)
     else:
-        # Assume MJPEG
         viewer = MJPEGViewer(target, name)
         viewer.run()
 
