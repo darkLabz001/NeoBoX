@@ -4,23 +4,23 @@
     "bg": "#06070d",
     "bg_alt": "#0c1020",
     "bar": "#05060c",
-    "accent": "#b14bff",
+    "accent": "#ff2e97",
     "accent2": "#2de2ff",
-    "text": "#eaf2ff",
-    "text_dim": "#7a86a8",
-    "tile": "#0d142488",
+    "text": "#ffffff",
+    "text_dim": "#b0b0b0",
+    "tile": "#0d1424aa",
     "tile_sel": "#1a2340",
-    "tile_border": "#b14bff",
+    "tile_border": "#ff2e97",
     "danger": "#ff5470",
     "warn": "#ffb454"
   },
   "fonts": {
-    "family": "dejavusansmono",
-    "family_bold": "dejavusansmono",
-    "ui": 15,
-    "small": 11,
-    "tile": 13,
-    "title": 20
+    "family": "liberationsansnarrow",
+    "family_bold": "liberationsansnarrow",
+    "ui": 16,
+    "small": 12,
+    "tile": 14,
+    "title": 22
   },
   "wallpaper": "neobox"
 }
