@@ -177,6 +177,10 @@ class App:
             from .screens.ble_spam import BLESpamScreen
             self.push(BLESpamScreen(self))
             return
+        if screen_req == "bad_ble":
+            from .screens.bad_ble import BadBLEScreen
+            self.push(BadBLEScreen(self))
+            return
 
         # ROM-based games: show a picker first so you choose which ROM to play.
         if meta.get("roms"):
