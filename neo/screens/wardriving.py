@@ -74,15 +74,25 @@ class WardrivingScreen(Screen):
         self._gps_thread.start()
 
     def _detection_loop(self):
-        # In a real build, we'd use 'nmcli -t -f BSSID,SSID,SIGNAL,SECURITY,CHAN dev wifi'
         while not self._stop_event.is_set():
             try:
+                # Use -t (terse) with -f to get specific fields
+                # Note: nmcli escapes colons as \:
                 cmd = ["sudo", "nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,SECURITY,CHAN", "dev", "wifi"]
                 out = subprocess.check_output(cmd, text=True).splitlines()
                 for line in out:
-                    parts = line.split(":")
+                    if not line.strip(): continue
+                    # Replace escaped colons with something else temporarily, or use a better split
+                    # A better way is to use a regex or replace \:
+                    clean = line.replace("\\:", "::")
+                    parts = clean.split(":")
                     if len(parts) >= 5:
-                        bssid, ssid, rssi, security, chan = parts[0]+":"+parts[1]+":"+parts[2]+":"+parts[3]+":"+parts[4]+":"+parts[5], parts[6], parts[7], parts[8], parts[9]
+                        bssid = parts[0].replace("::", ":")
+                        ssid = parts[1].replace("::", ":")
+                        rssi = parts[2]
+                        security = parts[3]
+                        chan = parts[4]
+                        
                         if bssid not in self._seen_macs:
                             self._seen_macs.add(bssid)
                             self.aps_found += 1
