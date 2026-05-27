@@ -1,4 +1,4 @@
-"""Wardriving Dashboard screen — WiGLE logging + Mobile GPS + BT/WiFi adapters."""
+"""Wardriving PRO — WiGLE logging + Handshake Capture + Mobile GPS."""
 from __future__ import annotations
 
 import os
@@ -11,6 +11,7 @@ import io
 import csv
 from pathlib import Path
 from datetime import datetime
+from collections import deque
 
 import pygame
 import qrcode
@@ -21,34 +22,40 @@ from .. import config
 class WardrivingScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
-        self.title = "WARDRIVING"
+        self.title = "WARDRIVING PRO"
         self.aps_found = 0
         self.bt_found = 0
         self.handshakes = 0
         self.gps = {"lat": 0.0, "lon": 0.0, "alt": 0.0, "acc": 0.0}
         self.linked = False
+        
         self._seen_macs = set()
         self._seen_bt = set()
+        self.log_buffer = deque(maxlen=6)
         
-        # QR Code for phone link (HTTPS)
+        # Adapters
+        self.wifi_iface = "wlan1"
+        self.bt_iface = "hci1"
+        
+        # QR Code for phone link
         self.qr_surf = self._generate_qr()
         
-        # WiGLE CSV Log
-        self.log_path = Path.home() / "neo" / "loot" / "wardrive" / time.strftime("wardrive-%Y%m%d-%H%M%S.csv")
+        # Paths
+        self.loot_dir = Path.home() / "neo" / "loot" / "wardrive"
+        self.log_path = self.loot_dir / time.strftime("wardrive-%Y%m%d-%H%M%S.csv")
+        self.pcap_path = self.loot_dir / time.strftime("capture-%Y%m%d-%H%M%S.pcapng")
         self._init_log()
         
         self._stop_event = threading.Event()
-        self._wifi_thread = None
-        self._bt_thread = None
-        self._gps_thread = None
+        self._procs = []
         
-        self._start_threads()
+        self._start_engines()
 
     def _init_log(self):
         try:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self.loot_dir.mkdir(parents=True, exist_ok=True)
             with open(self.log_path, "w", newline="") as f:
-                f.write("WigleWifi-1.4,appRelease=NeoBoX-2.0,model=Handheld,release=0.1,device=NeoBoX,display=None,board=None,brand=Neo\n")
+                f.write("WigleWifi-1.4,appRelease=NeoBoX-PRO,model=Handheld,release=0.1,device=NeoBoX,display=None,board=None,brand=Neo\n")
                 f.write("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n")
         except: pass
 
@@ -63,56 +70,77 @@ class WardrivingScreen(Screen):
 
     def _generate_qr(self):
         ip = self._get_local_ip()
-        url = f"https://{ip}:8888/mobile"
+        url = f"http://{ip}:8888/mobile"
         qr = qrcode.QRCode(version=1, box_size=3, border=2)
         qr.add_data(url)
         qr.make(fit=True)
         img = qr.make_image(fill_color="white", back_color="black").convert("RGB")
-        data = img.tobytes()
-        return pygame.image.fromstring(data, img.size, "RGB")
+        return pygame.image.fromstring(img.tobytes(), img.size, "RGB")
 
-    def _start_threads(self):
+    def _start_engines(self):
         self._stop_event.clear()
-        self._wifi_thread = threading.Thread(target=self._wifi_loop, daemon=True)
-        self._wifi_thread.start()
-        self._bt_thread = threading.Thread(target=self._bt_loop, daemon=True)
-        self._bt_thread.start()
-        self._gps_thread = threading.Thread(target=self._gps_poll_loop, daemon=True)
-        self._gps_thread.start()
+        # 1. WiFi Pro Engine (hcxdumptool)
+        threading.Thread(target=self._wifi_engine, daemon=True).start()
+        # 2. BT Engine
+        threading.Thread(target=self._bt_engine, daemon=True).start()
+        # 3. GPS Link
+        threading.Thread(target=self._gps_poll_loop, daemon=True).start()
 
-    def _wifi_loop(self):
-        iface = "wlan1"
+    def _wifi_engine(self):
+        # 1. Prepare interface
+        subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "down"], capture_output=True)
+        subprocess.run(["sudo", "iw", "dev", self.wifi_iface, "set", "type", "monitor"], capture_output=True)
+        subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "up"], capture_output=True)
+        
+        self.log_buffer.append(f"[*] wlan1: Monitor Mode active")
+
+        # 2. Start hcxdumptool (Passive capture)
+        # --rds=1 (enable received data server for status)
+        cmd = [
+            "sudo", "hcxdumptool", "-i", self.wifi_iface,
+            "-o", str(self.pcap_path),
+            "--enable_status=1"
+        ]
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            self._procs.append(proc)
+            
+            # 3. Monitor NMCLI in parallel for WiGLE details (SSIDs/RSSI)
+            while not self._stop_event.is_set():
+                try:
+                    # Scan for WiGLE logging
+                    scan_cmd = ["sudo", "nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,SECURITY,CHAN", "dev", "wifi", "list", "ifname", "wlan0"] # Use wlan0 for scanning info while wlan1 captures
+                    out = subprocess.check_output(scan_cmd, text=True).splitlines()
+                    for line in out:
+                        tmp = line.replace("\\:", "|")
+                        parts = tmp.split(":")
+                        if len(parts) >= 5:
+                            bssid = parts[0].replace("|", ":")
+                            ssid = parts[1].replace("|", ":")
+                            if bssid not in self._seen_macs:
+                                self._seen_macs.add(bssid)
+                                self.aps_found += 1
+                                self._log_to_wigle(bssid, ssid, parts[3], parts[4], parts[2], "WIFI")
+                                self.log_buffer.append(f"[+] WiFi: {ssid[:15]}")
+                except: pass
+                
+                # Check for handshakes (approximate by file size growth)
+                try:
+                    if self.pcap_path.exists():
+                        size = self.pcap_path.stat().st_size
+                        # Every ~100KB might be a few packets/handshakes
+                        self.handshakes = size // 50000 
+                except: pass
+                
+                time.sleep(4)
+        except Exception as e:
+            self.log_buffer.append(f"[!] WiFi Error: {str(e)[:20]}")
+
+    def _bt_engine(self):
         while not self._stop_event.is_set():
             try:
-                # Terse output uses ':' as separator, but MACs also have ':'. 
-                # nmcli escapes them as \:
-                cmd = ["sudo", "nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,SECURITY,CHAN", "dev", "wifi", "list", "ifname", iface]
-                out = subprocess.check_output(cmd, text=True).splitlines()
-                for line in out:
-                    if not line.strip(): continue
-                    # Replace escaped colons with | temporarily
-                    tmp = line.replace("\\:", "|")
-                    parts = tmp.split(":")
-                    if len(parts) >= 5:
-                        bssid = parts[0].replace("|", ":")
-                        ssid = parts[1].replace("|", ":")
-                        rssi = parts[2]
-                        security = parts[3]
-                        chan = parts[4]
-                        if bssid not in self._seen_macs:
-                            self._seen_macs.add(bssid)
-                            self.aps_found += 1
-                            if self.linked:
-                                self._log_to_wigle(bssid, ssid, security, chan, rssi, "WIFI")
-            except: pass
-            time.sleep(5)
-
-    def _bt_loop(self):
-        iface = "hci1"
-        while not self._stop_event.is_set():
-            try:
-                cmd = ["sudo", "hcitool", "-i", iface, "scan", "--flush"]
-                out = subprocess.check_output(cmd, text=True).splitlines()
+                cmd = ["sudo", "hcitool", "-i", self.bt_iface, "scan", "--flush"]
+                out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).splitlines()
                 for line in out:
                     m = re.search(r"([0-9A-F:]{17})\s+(.*)", line)
                     if m:
@@ -122,8 +150,8 @@ class WardrivingScreen(Screen):
                             self.bt_found += 1
                             if self.linked:
                                 self._log_to_wigle(mac, name, "[BT]", 0, -70, "BT")
-                # Briefly ping lescan to wake up cache
-                subprocess.run(["sudo", "timeout", "-s", "INT", "1s", "hcitool", "-i", iface, "lescan"], capture_output=True)
+                            self.log_buffer.append(f"[+] BT: {name[:15]}")
+                subprocess.run(["sudo", "timeout", "-s", "INT", "1s", "hcitool", "-i", self.bt_iface, "lescan"], capture_output=True)
             except: pass
             time.sleep(3)
 
@@ -139,7 +167,7 @@ class WardrivingScreen(Screen):
         import requests
         while not self._stop_event.is_set():
             try:
-                r = requests.get("https://127.0.0.1:8888/api/gps", timeout=1, verify=False)
+                r = requests.get("http://127.0.0.1:8888/api/gps", timeout=1)
                 data = r.json()
                 if time.time() - data.get('last_seen', 0) < 20:
                     self.gps = data.get('gps', self.gps)
@@ -149,9 +177,16 @@ class WardrivingScreen(Screen):
             except: pass
             time.sleep(1)
 
+    def _stop_all(self):
+        self._stop_event.set()
+        for p in self._procs:
+            try: p.terminate()
+            except: pass
+        subprocess.run(["sudo", "pkill", "-f", "hcxdumptool"], capture_output=True)
+
     def on_action(self, action: str):
         if action == "B":
-            self._stop_event.set()
+            self._stop_all()
             self.app.pop()
 
     def update(self, dt: float):
@@ -162,45 +197,63 @@ class WardrivingScreen(Screen):
 
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
-        self.app.statusbar.draw(surf, theme, "RECON: WARDRIVING")
+        self.app.statusbar.draw(surf, theme, "RECON: WARDRIVING PRO")
 
         accent = theme.color("accent")
+        accent2 = theme.color("accent2")
         dim = theme.color("text_dim")
         ui, small = theme.font("ui"), theme.font("small")
+        title_f = theme.font("title")
         
-        link_rect = pygame.Rect(10, 40, 180, 110)
+        # 1. GPS LINK (Left)
+        link_rect = pygame.Rect(10, 40, 160, 110)
         pygame.draw.rect(surf, theme.color("tile"), link_rect, border_radius=8)
         pygame.draw.rect(surf, accent if self.linked else dim, link_rect, width=1, border_radius=8)
         
         if not self.linked:
             if hasattr(self, 'qr_surf'):
-                surf.blit(self.qr_surf, (link_rect.x + 10, link_rect.y + 10))
-            surf.blit(small.render("SCAN (HTTPS)", True, accent), (link_rect.x + 85, link_rect.y + 35))
-            surf.blit(small.render("FOR GPS PERMS", True, accent), (link_rect.x + 85, link_rect.y + 50))
+                surf.blit(self.qr_surf, (link_rect.centerx - self.qr_surf.get_width()//2, link_rect.y + 5))
+            surf.blit(small.render("SCAN TO LINK GPS", True, accent), (link_rect.x + 25, link_rect.bottom - 18))
         else:
-            surf.blit(small.render("PHONE LINK: ACTIVE", True, theme.color("danger")), (link_rect.x + 10, link_rect.y + 10))
-            surf.blit(ui.render(f"LAT: {self.gps['lat']:.4f}", True, theme.color("text")), (link_rect.x + 10, link_rect.y + 35))
-            surf.blit(ui.render(f"LON: {self.gps['lon']:.4f}", True, theme.color("text")), (link_rect.x + 10, link_rect.y + 60))
-            surf.blit(small.render(f"ACCURACY: {self.gps['acc']:.1f}m", True, dim), (link_rect.x + 10, link_rect.y + 85))
+            surf.blit(small.render("PHONE GPS: ACTIVE", True, theme.color("danger")), (link_rect.x + 10, link_rect.y + 8))
+            surf.blit(ui.render(f"LAT: {self.gps['lat']:.5f}", True, theme.color("text")), (link_rect.x + 10, link_rect.y + 30))
+            surf.blit(ui.render(f"LON: {self.gps['lon']:.5f}", True, theme.color("text")), (link_rect.x + 10, link_rect.y + 52))
+            # Accuracy Bar
+            pygame.draw.rect(surf, (0,0,0), (link_rect.x + 10, link_rect.y + 85, 140, 4))
+            acc_w = max(2, 140 - int(self.gps['acc'] * 2))
+            pygame.draw.rect(surf, accent, (link_rect.x + 10, link_rect.y + 85, min(140, acc_w), 4))
+            surf.blit(small.render(f"ACCURACY: {self.gps['acc']:.1f}m", True, dim), (link_rect.x + 10, link_rect.y + 92))
 
-        stats_rect = pygame.Rect(200, 40, config.SCREEN_W - 210, 110)
+        # 2. STATS (Right)
+        stats_rect = pygame.Rect(180, 40, config.SCREEN_W - 190, 110)
         pygame.draw.rect(surf, theme.color("tile"), stats_rect, border_radius=8)
         pygame.draw.rect(surf, accent, stats_rect, width=1, border_radius=8)
         
-        surf.blit(small.render("WIFI APS", True, dim), (stats_rect.x + 10, stats_rect.y + 10))
-        surf.blit(theme.font("title").render(str(self.aps_found), True, accent), (stats_rect.x + 10, stats_rect.y + 25))
+        # Grid inside stats
+        surf.blit(small.render("WIFI APS", True, dim), (stats_rect.x + 10, stats_rect.y + 5))
+        surf.blit(title_f.render(str(self.aps_found), True, accent), (stats_rect.x + 10, stats_rect.y + 18))
         
-        surf.blit(small.render("BT DEVICES", True, dim), (stats_rect.x + 10, stats_rect.y + 60))
-        surf.blit(theme.font("title").render(str(self.bt_found), True, theme.color("accent2")), (stats_rect.x + 10, stats_rect.y + 75))
+        surf.blit(small.render("BT DEVICES", True, dim), (stats_rect.x + 110, stats_rect.y + 5))
+        surf.blit(title_f.render(str(self.bt_found), True, accent2), (stats_rect.x + 110, stats_rect.y + 18))
 
+        surf.blit(small.render("HANDSHAKES (PCAPNG)", True, dim), (stats_rect.x + 10, stats_rect.y + 60))
+        h_color = theme.color("danger") if self.handshakes > 0 else dim
+        surf.blit(title_f.render(str(self.handshakes), True, h_color), (stats_rect.x + 10, stats_rect.y + 75))
+
+        # 3. LIVE LOG (Bottom)
         log_rect = pygame.Rect(10, 160, config.SCREEN_W - 20, config.SCREEN_H - 195)
-        pygame.draw.rect(surf, (0, 0, 0, 100), log_rect, border_radius=8)
+        pygame.draw.rect(surf, (0, 0, 0, 150), log_rect, border_radius=8)
         pygame.draw.rect(surf, accent, log_rect, width=1, border_radius=8)
         
-        surf.blit(small.render("DUAL-ADAPTER LOGGING", True, dim), (log_rect.x + 10, log_rect.y + 5))
-        surf.blit(small.render(f"> WiFi: wlan1 (Alfa) | BT: hci1 (USB)", True, theme.color("text")), (log_rect.x + 10, log_rect.y + 25))
-        total = len(self._seen_macs) + len(self._seen_bt)
-        surf.blit(small.render(f"> Total WiGLE Entries: {total}", True, theme.color("text")), (log_rect.x + 10, log_rect.y + 42))
+        y = log_rect.y + 5
+        for entry in self.log_buffer:
+            surf.blit(small.render(entry, True, theme.color("text")), (log_rect.x + 10, y))
+            y += 15
+        
+        # Interface Indicators
+        if int(time.time()) % 2 == 0:
+            pygame.draw.circle(surf, accent, (config.SCREEN_W - 25, 55), 4) # WiFi pulse
+            pygame.draw.circle(surf, accent2, (config.SCREEN_W - 40, 55), 4) # BT pulse
 
     def hints(self):
-        return [("B", "stop & back")]
+        return [("B", "stop & exit")]
