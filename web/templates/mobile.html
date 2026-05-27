@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEOBOX | Mobile Link</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        :root { --bg: #05060c; --accent: #ff2e97; --text: #eaf2ff; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+        .card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 15px; border: 1px solid var(--accent); width: 80%; max-width: 300px; box-shadow: 0 0 20px rgba(255,46,151,0.2); }
+        h1 { color: var(--accent); margin-bottom: 5px; font-size: 1.5rem; }
+        .status { margin-bottom: 20px; font-size: 0.9rem; opacity: 0.8; }
+        .data { font-family: monospace; font-size: 1.1rem; line-height: 1.6; }
+        .btn { background: var(--accent); color: white; border: none; padding: 12px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1><i class="fas fa-satellite-dish"></i> SENSOR LINK</h1>
+        <div class="status" id="status">READY TO STREAM</div>
+        
+        <div class="data" id="gps-data">
+            LAT: ---<br>
+            LON: ---<br>
+            ACC: ---
+        </div>
+
+        <button class="btn" id="start-btn">ENABLE GPS</button>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const socket = io('/system');
+        const startBtn = document.getElementById('start-btn');
+        const status = document.getElementById('status');
+        const dataBox = document.getElementById('gps-data');
+        let watchId = null;
+
+        startBtn.onclick = () => {
+            if (!navigator.geolocation) {
+                alert("Geolocation not supported");
+                return;
+            }
+
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+                startBtn.innerText = "ENABLE GPS";
+                status.innerText = "STREAM STOPPED";
+            } else {
+                status.innerText = "REQUESTING ACCESS...";
+                watchId = navigator.geolocation.watchPosition((pos) => {
+                    const gps = {
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        alt: pos.coords.altitude || 0,
+                        acc: pos.coords.accuracy
+                    };
+                    
+                    dataBox.innerHTML = `
+                        LAT: ${gps.lat.toFixed(6)}<br>
+                        LON: ${gps.lon.toFixed(6)}<br>
+                        ACC: ${gps.acc.toFixed(1)}m
+                    `;
+                    
+                    status.innerText = "STREAMING LIVE";
+                    socket.emit('gps_update', gps);
+                }, (err) => {
+                    status.innerText = "ERROR: " + err.message;
+                }, { enableHighAccuracy: true });
+                
+                startBtn.innerText = "DISABLE GPS";
+            }
+        };
+    </script>
+</body>
+</html>

@@ -43,6 +43,7 @@ class App:
         
         print("[DEBUG] Initializing remote listener")
         self._init_remote_listener()
+        self._init_live_view_server()
 
         self.stack: list = []
         self.clock = pygame.time.Clock()
@@ -70,6 +71,38 @@ class App:
         t = threading.Thread(target=_listen, daemon=True)
         t.start()
         print("[remote] listener started on port 9999")
+
+    def _init_live_view_server(self):
+        """Start a simple TCP server to stream logical surface as JPEG for Web UI."""
+        import socket
+        import threading
+        import io
+        import struct
+        def _serve():
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("127.0.0.1", 9998))
+                sock.listen(1)
+                while self.running:
+                    conn, addr = sock.accept()
+                    try:
+                        # Convert logical surface to JPEG
+                        buf = io.BytesIO()
+                        pygame.image.save(self.logical, buf, "jpg")
+                        data = buf.getvalue()
+                        # Send header + data
+                        conn.sendall(struct.pack(">I", len(data)) + data)
+                    except: pass
+                    finally: conn.close()
+            except Exception as e:
+                print(f"[liveview] server error: {e}")
+            finally:
+                sock.close()
+        
+        t = threading.Thread(target=_serve, daemon=True)
+        t.start()
+        print("[liveview] server started on port 9998")
 
     # --- window ---------------------------------------------------------
     def _init_window(self):
@@ -180,6 +213,10 @@ class App:
         if screen_req == "bad_ble":
             from .screens.bad_ble import BadBLEScreen
             self.push(BadBLEScreen(self))
+            return
+        if screen_req == "wardrive":
+            from .screens.wardriving import WardrivingScreen
+            self.push(WardrivingScreen(self))
             return
 
         # ROM-based games: show a picker first so you choose which ROM to play.

@@ -53,26 +53,38 @@ function reconnectTerminal() {
 // System Stats
 sysSocket.on('sys_stats', (data) => {
     // Mini stats
-    document.getElementById('cpu-mini').innerText = Math.round(data.cpu) + '%';
-    document.getElementById('temp-mini').innerText = Math.round(data.temp) + '°C';
+    if(document.getElementById('cpu-mini')) document.getElementById('cpu-mini').innerText = Math.round(data.cpu) + '%';
+    if(document.getElementById('temp-mini')) document.getElementById('temp-mini').innerText = Math.round(data.temp) + '°C';
     
     const up_m = Math.floor(data.uptime / 60);
     const up_h = Math.floor(up_m / 60);
-    document.getElementById('uptime-mini').innerText = `${up_h}:${(up_m % 60).toString().padStart(2, '0')}`;
+    if(document.getElementById('uptime-mini')) document.getElementById('uptime-mini').innerText = `${up_h}:${(up_m % 60).toString().padStart(2, '0')}`;
 
     // Dashboard cards
     updateGauge('cpu', data.cpu);
     updateGauge('ram', data.ram);
     updateGauge('disk', data.disk);
     
-    document.getElementById('temp-val').innerText = data.temp.toFixed(1);
-    document.getElementById('load-val').innerText = data.load.map(l => l.toFixed(2)).join(', ');
+    if(document.getElementById('temp-val')) document.getElementById('temp-val').innerText = data.temp.toFixed(1);
+    if(document.getElementById('load-val')) document.getElementById('load-val').innerText = data.load.map(l => l.toFixed(2)).join(', ');
     
     const h = Math.floor(data.uptime / 3600);
     const m = Math.floor((data.uptime % 3600) / 60);
     const s = Math.floor(data.uptime % 60);
-    document.getElementById('uptime-val').innerText = 
-        `${h}h ${m}m ${s}s`;
+    if(document.getElementById('uptime-val')) document.getElementById('uptime-val').innerText = `${h}h ${m}m ${s}s`;
+});
+
+// Live View
+sysSocket.on('live_frame', (data) => {
+    const screen = document.getElementById('live-screen');
+    const status = document.getElementById('live-status');
+    if (screen) {
+        screen.src = 'data:image/jpeg;base64,' + data.image;
+        if (status) {
+            status.innerText = 'LIVE';
+            status.className = 'badge success';
+        }
+    }
 });
 
 function updateGauge(id, val) {
@@ -81,9 +93,8 @@ function updateGauge(id, val) {
     if (bar) bar.style.width = val + '%';
     if (text) text.innerText = Math.round(val) + '%';
     
-    // Color coding
-    if (val > 85) bar.style.background = 'var(--danger)';
-    else if (val > 60) bar.style.background = 'var(--warning)';
+    if (val > 85) bar.style.background = '#ff5470';
+    else if (val > 60) bar.style.background = '#ffb454';
     else bar.style.background = '';
 }
 
@@ -108,7 +119,6 @@ function showSection(id) {
 // Remote Actions
 function sendAction(action) {
     remoteSocket.emit('remote_action', { action: action });
-    // Visual feedback for dpad/action buttons
     const btn = document.getElementById('btn-' + action);
     if (btn) {
         btn.classList.add('active');
@@ -119,7 +129,6 @@ function sendAction(action) {
 // Keyboard shortcuts for remote
 window.addEventListener('keydown', (e) => {
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.id === 'terminal') return;
-    
     const map = {
         'ArrowUp': 'UP', 'ArrowDown': 'DOWN', 'ArrowLeft': 'LEFT', 'ArrowRight': 'RIGHT',
         'Enter': 'A', 'Escape': 'B', 'x': 'X', 'y': 'Y', 's': 'START', 'a': 'SELECT', 'q': 'L', 'e': 'R'
@@ -144,12 +153,10 @@ async function loadFiles(section) {
         const res = await fetch(`/api/files?section=${currentFileSection}`);
         const files = await res.json();
         list.innerHTML = '';
-        
         if (files.length === 0) {
             list.innerHTML = '<li style="justify-content: center; color: var(--text-dim)">No files found</li>';
             return;
         }
-
         files.forEach(f => {
             const li = document.createElement('li');
             const size = (f.size / 1024 / 1024).toFixed(2);
@@ -165,7 +172,7 @@ async function loadFiles(section) {
             list.appendChild(li);
         });
     } catch (err) {
-        list.innerHTML = '<li style="justify-content: center; color: var(--danger)">Failed to load files</li>';
+        list.innerHTML = '<li style="justify-content: center; color: #ff5470">Failed to load files</li>';
     }
 }
 
@@ -189,40 +196,18 @@ async function deleteFile(path) {
 }
 
 // Upload Handling
-const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const fileInfo = document.getElementById('file-info');
-
-dropZone.onclick = () => fileInput.click();
-
-dropZone.ondragover = (e) => {
-    e.preventDefault();
-    dropZone.classList.add('dragover');
-};
-
-dropZone.ondragleave = () => dropZone.classList.remove('dragover');
-
-dropZone.ondrop = (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    if (e.dataTransfer.files.length) {
-        fileInput.files = e.dataTransfer.files;
-        updateFileInfo();
-    }
-};
-
-fileInput.onchange = updateFileInfo;
+const dropZone = document.getElementById('drop-zone');
+if(dropZone) dropZone.onclick = () => fileInput.click();
 
 function updateFileInfo() {
     if (fileInput.files.length) {
         const file = fileInput.files[0];
-        fileInfo.innerHTML = `
-            <div class="card" style="padding: 10px; font-size: 0.8rem; background: rgba(255,255,255,0.05)">
-                <strong>Ready:</strong> ${file.name} (${(file.size/1024/1024).toFixed(2)} MB)
-            </div>
-        `;
+        fileInfo.innerHTML = `<div class="card" style="padding: 10px; font-size: 0.8rem; background: rgba(255,255,255,0.05)"><strong>Ready:</strong> ${file.name}</div>`;
     }
 }
+if(fileInput) fileInput.onchange = updateFileInfo;
 
 document.getElementById('upload-form').onsubmit = async (e) => {
     e.preventDefault();
@@ -230,84 +215,35 @@ document.getElementById('upload-form').onsubmit = async (e) => {
         showToast('Please select a file', 'warning');
         return;
     }
-
     const status = document.getElementById('upload-status');
     const btn = e.target.querySelector('button');
-    const originalBtnText = btn.innerText;
-
-    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading to device...';
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-
+    status.innerHTML = 'Uploading...';
     const formData = new FormData(e.target);
     try {
-        const res = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData
-        });
-        const result = await res.json();
-        if (result.success) {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (res.ok) {
             showToast('Upload successful!', 'success');
             status.innerHTML = '';
             fileInfo.innerHTML = '';
             fileInput.value = '';
             loadFiles();
         } else {
-            showToast('Error: ' + result.error, 'danger');
-            status.innerHTML = `<span class="text-danger">Upload failed</span>`;
+            showToast('Upload failed', 'danger');
         }
     } catch (err) {
-        showToast('Upload connection error', 'danger');
-        status.innerHTML = '';
-    } finally {
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        btn.innerText = originalBtnText;
+        showToast('Connection error', 'danger');
     }
 };
 
-// Toast Notifications
 function showToast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
-    if (!container) return;
-
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.style.cssText = `
-        background: ${type === 'success' ? 'var(--success)' : type === 'danger' ? 'var(--danger)' : 'var(--accent)'};
-        color: white;
-        padding: 12px 24px;
-        border-radius: 8px;
-        margin-top: 10px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        font-weight: 600;
-        font-size: 0.9rem;
-        animation: fadeInRight 0.3s ease-out;
-    `;
+    toast.style.cssText = `background: ${type === 'success' ? '#27e07d' : type === 'danger' ? '#ff5470' : '#ff2e97'}; color: white; padding: 10px 20px; border-radius: 5px; margin-top: 10px; font-weight: bold;`;
     toast.innerText = msg;
     container.appendChild(toast);
-
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(20px)';
-        toast.style.transition = 'all 0.3s';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    setTimeout(() => toast.remove(), 3000);
 }
-
-// Helpers
-window.addEventListener('resize', () => {
-    fitAddon.fit();
-    if (termSocket.connected) {
-        termSocket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
-    }
-});
-
-// Toast container setup
-const tContainer = document.createElement('div');
-tContainer.id = 'toast-container';
-tContainer.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 10000;';
-document.body.appendChild(tContainer);
 
 // Initial Load
 showSection('dashboard');

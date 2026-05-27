@@ -15,6 +15,7 @@ import socket
 import time
 import psutil
 import signal
+import base64
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
@@ -30,6 +31,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ROM_DIR = Path.home() / "roms" / "ps1"
 PAYLOAD_DIR = BASE_DIR / "payloads"
 ROM_DIR.mkdir(parents=True, exist_ok=True)
+
+# Global state for mobile sensor sharing
+mobile_data = {
+    'gps': {'lat': 0, 'lon': 0, 'alt': 0, 'acc': 0},
+    'last_seen': 0
+}
 
 # System Stats Helper
 def get_sys_info():
@@ -62,7 +69,34 @@ def stats_thread():
             print(f"[web] stats error: {e}")
         socketio.sleep(2)
 
+# Live View Background Task
+def live_view_thread():
+    print("[web] live view thread started")
+    while True:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.0)
+            sock.connect(("127.0.0.1", 9998))
+            
+            raw_size = sock.recv(4)
+            if len(raw_size) == 4:
+                size = struct.unpack(">I", raw_size)[0]
+                data = b""
+                while len(data) < size:
+                    chunk = sock.recv(min(size - len(data), 8192))
+                    if not chunk: break
+                    data += chunk
+                
+                if len(data) == size:
+                    encoded = base64.b64encode(data).decode('utf-8')
+                    socketio.emit('live_frame', {'image': encoded}, namespace='/system')
+            sock.close()
+        except:
+            pass
+        socketio.sleep(0.15) # ~6-7 FPS to save bandwidth
+
 socketio.start_background_task(stats_thread)
+socketio.start_background_task(live_view_thread)
 
 class TerminalSession:
     def __init__(self):
@@ -83,15 +117,12 @@ class TerminalSession:
         try:
             (self.child_pid, self.fd) = pty.fork()
             if self.child_pid == 0:
-                # Child process
                 os.environ["TERM"] = "xterm-256color"
                 os.environ["SHELL"] = "/bin/bash"
                 os.environ["HOME"] = str(Path.home())
                 os.chdir(str(BASE_DIR))
-                # Interactive bash with colors
                 os.execvp("/bin/bash", ["/bin/bash", "-i"])
             else:
-                # Parent process
                 socketio.start_background_task(target=self.read_output)
                 print(f"[web] terminal spawned (pid: {self.child_pid})")
         except Exception as e:
@@ -107,12 +138,8 @@ class TerminalSession:
                     try:
                         output = os.read(self.fd, max_read_bytes).decode(errors='replace')
                         socketio.emit("terminal_output", {"data": output}, namespace="/terminal")
-                    except EOFError:
-                        break
-                    except Exception:
-                        break
+                    except: break
         self.fd = None
-        print("[web] terminal output thread closed")
 
     def write_input(self, data):
         if self.fd: os.write(self.fd, data.encode())
@@ -127,8 +154,15 @@ term = TerminalSession()
 @app.route('/')
 def index(): return render_template('index.html')
 
+@app.route('/mobile')
+def mobile_link(): return render_template('mobile.html')
+
 @app.route('/api/stats')
 def api_stats(): return jsonify(get_sys_info())
+
+@app.route('/api/gps')
+def get_mobile_gps():
+    return jsonify(mobile_data)
 
 @app.route('/api/files', methods=['GET'])
 def list_files():
@@ -145,7 +179,6 @@ def list_files():
                     "mtime": f.stat().st_mtime,
                     "type": "rom" if section == "roms" else "payload"
                 })
-    # Sort by newest first
     files.sort(key=lambda x: x['mtime'], reverse=True)
     return jsonify(files)
 
@@ -155,7 +188,6 @@ def delete_file():
     path = data.get('path')
     if not path: return jsonify({"error": "No path"}), 400
     abs_path = (ROM_DIR.parent / path).resolve()
-    # Security: ensure path is within ROM or Payload dirs
     if not any(str(abs_path).startswith(str(d)) for d in [ROM_DIR, PAYLOAD_DIR]):
         return jsonify({"error": "Access denied"}), 403
     if abs_path.exists():
@@ -170,30 +202,21 @@ def upload_file():
         file = request.files['file']
         if file.filename == '': return jsonify({"error": "No selected file"}), 400
         target_type = request.form.get('type', 'rom')
-        
         from werkzeug.utils import secure_filename
         filename = secure_filename(file.filename)
-        
         if target_type == 'payload':
             save_path = PAYLOAD_DIR / "custom" / filename
             save_path.parent.mkdir(parents=True, exist_ok=True)
         else:
             save_path = ROM_DIR / filename
-            
         file.save(str(save_path))
         if target_type == 'payload': save_path.chmod(0o755)
-        
-        print(f"[web] saved {filename} to {save_path.parent}")
         return jsonify({"success": True, "path": str(save_path)})
     except Exception as e:
-        print(f"[web] upload error: {e}")
         return jsonify({"error": str(e)}), 500
 
-# SocketIO Events
 @socketio.on("connect", namespace="/terminal")
-def connect_term():
-    print("[web] client connected to terminal")
-    term.spawn()
+def connect_term(): term.spawn()
 
 @socketio.on("terminal_input", namespace="/terminal")
 def terminal_input(data): term.write_input(data["data"])
@@ -209,8 +232,13 @@ def remote_action(data):
         sock.sendto(action.encode(), ("127.0.0.1", 9999))
         sock.close()
 
+@socketio.on('gps_update', namespace='/system')
+def handle_gps(data):
+    global mobile_data
+    mobile_data['gps'] = data
+    mobile_data['last_seen'] = time.time()
+    socketio.emit('mobile_gps_broadcast', data, namespace='/system')
+
 if __name__ == '__main__':
     print("--- NeoBox Web UI Core 2.0 Starting ---")
-    print("Binding to 0.0.0.0:8888...")
-    sys.stdout.flush()
     socketio.run(app, host='0.0.0.0', port=8888, debug=False)
