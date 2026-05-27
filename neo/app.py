@@ -204,6 +204,9 @@ class App:
             self.open_power_menu()
         elif action == "update":
             self.run_ota()
+        elif action == "loot":
+            from .screens.loot import LootScreen
+            self.push(LootScreen(self))
         elif action == "web_ui":
             self.show_web_info()
         elif action == "web_ui_log":
