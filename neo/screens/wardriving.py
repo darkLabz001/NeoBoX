@@ -1,4 +1,4 @@
-"""Wardriving PRO — WiGLE logging + Handshake Capture + Mobile GPS."""
+"""Wardriving PRO 2.0 — Handshake Verification + OUI Lookup + Tactical Audio."""
 from __future__ import annotations
 
 import os
@@ -22,16 +22,17 @@ from .. import config
 class WardrivingScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
-        self.title = "WARDRIVING PRO"
+        self.title = "WARDRIVING PRO 2.0"
         self.aps_found = 0
         self.bt_found = 0
         self.handshakes = 0
+        self.verified_hashes = 0
         self.gps = {"lat": 0.0, "lon": 0.0, "alt": 0.0, "acc": 0.0}
         self.linked = False
         
         self._seen_macs = set()
         self._seen_bt = set()
-        self.log_buffer = deque(maxlen=6)
+        self.log_buffer = deque(maxlen=8)
         
         # Adapters
         self.wifi_iface = "wlan1"
@@ -49,13 +50,31 @@ class WardrivingScreen(Screen):
         self._stop_event = threading.Event()
         self._procs = []
         
+        # Vendor OUI Cache (Simple lookup)
+        self.oui_db = self._load_oui_lite()
+        
         self._start_engines()
+
+    def _load_oui_lite(self):
+        # A tiny embedded DB for common manufacturers
+        return {
+            "00:03:93": "Apple", "00:05:02": "Apple", "00:0A:95": "Apple",
+            "00:14:22": "Dell", "00:16:3E": "Xen", "00:1A:11": "Google",
+            "00:24:D7": "Intel", "34:E1:2D": "Lenovo", "B8:27:EB": "RaspberryPi",
+            "DC:A6:32": "RaspberryPi", "E4:5F:01": "RaspberryPi",
+            "00:C0:CA": "Alfa", "00:25:9C": "Cisco", "00:1D:AA": "TP-Link",
+            "B0:4E:26": "TP-Link", "C0:25:E9": "Microsoft", "D8:3B:BF": "Samsung"
+        }
+
+    def _get_vendor(self, mac: str) -> str:
+        prefix = mac.upper()[:8]
+        return self.oui_db.get(prefix, "Unknown")
 
     def _init_log(self):
         try:
             self.loot_dir.mkdir(parents=True, exist_ok=True)
             with open(self.log_path, "w", newline="") as f:
-                f.write("WigleWifi-1.4,appRelease=NeoBoX-PRO,model=Handheld,release=0.1,device=NeoBoX,display=None,board=None,brand=Neo\n")
+                f.write("WigleWifi-1.4,appRelease=NeoBoX-PRO-2,model=Handheld,release=0.1,device=NeoBoX,display=None,board=None,brand=Neo\n")
                 f.write("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n")
         except: pass
 
@@ -79,23 +98,20 @@ class WardrivingScreen(Screen):
 
     def _start_engines(self):
         self._stop_event.clear()
-        # 1. WiFi Pro Engine (hcxdumptool)
         threading.Thread(target=self._wifi_engine, daemon=True).start()
-        # 2. BT Engine
         threading.Thread(target=self._bt_engine, daemon=True).start()
-        # 3. GPS Link
         threading.Thread(target=self._gps_poll_loop, daemon=True).start()
+        threading.Thread(target=self._verification_loop, daemon=True).start()
 
     def _wifi_engine(self):
-        # 1. Prepare interface
+        # Prepare interface
         subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "down"], capture_output=True)
         subprocess.run(["sudo", "iw", "dev", self.wifi_iface, "set", "type", "monitor"], capture_output=True)
         subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "up"], capture_output=True)
         
         self.log_buffer.append(f"[*] wlan1: Monitor Mode active")
 
-        # 2. Start hcxdumptool (Passive capture)
-        # --rds=1 (enable received data server for status)
+        # Start hcxdumptool
         cmd = [
             "sudo", "hcxdumptool", "-i", self.wifi_iface,
             "-o", str(self.pcap_path),
@@ -105,11 +121,10 @@ class WardrivingScreen(Screen):
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             self._procs.append(proc)
             
-            # 3. Monitor NMCLI in parallel for WiGLE details (SSIDs/RSSI)
             while not self._stop_event.is_set():
                 try:
-                    # Scan for WiGLE logging
-                    scan_cmd = ["sudo", "nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,SECURITY,CHAN", "dev", "wifi", "list", "ifname", "wlan0"] # Use wlan0 for scanning info while wlan1 captures
+                    # Scan for WiGLE details using wlan0 (internal)
+                    scan_cmd = ["sudo", "nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,SECURITY,CHAN", "dev", "wifi", "list", "ifname", "wlan0"]
                     out = subprocess.check_output(scan_cmd, text=True).splitlines()
                     for line in out:
                         tmp = line.replace("\\:", "|")
@@ -121,20 +136,38 @@ class WardrivingScreen(Screen):
                                 self._seen_macs.add(bssid)
                                 self.aps_found += 1
                                 self._log_to_wigle(bssid, ssid, parts[3], parts[4], parts[2], "WIFI")
-                                self.log_buffer.append(f"[+] WiFi: {ssid[:15]}")
+                                vendor = self._get_vendor(bssid)
+                                self.log_buffer.append(f"[+] WiFi: {ssid[:12]} ({vendor})")
+                                self.app.sfx.play("move") # Low-pitch ping
                 except: pass
-                
-                # Check for handshakes (approximate by file size growth)
-                try:
-                    if self.pcap_path.exists():
-                        size = self.pcap_path.stat().st_size
-                        # Every ~100KB might be a few packets/handshakes
-                        self.handshakes = size // 50000 
-                except: pass
-                
                 time.sleep(4)
         except Exception as e:
             self.log_buffer.append(f"[!] WiFi Error: {str(e)[:20]}")
+
+    def _verification_loop(self):
+        """Periodically run hcxpcapngtool to verify valid hashes in the pcap."""
+        while not self._stop_event.is_set():
+            if self.pcap_path.exists() and self.pcap_path.stat().st_size > 1024:
+                try:
+                    # -v 1 gives a summary of PMKIDs and EAPOL handshakes
+                    cmd = ["hcxpcapngtool", str(self.pcap_path)]
+                    out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+                    
+                    # Look for totals in the summary
+                    pmkids = re.search(r"written to PMKID file.*?(\d+)", out)
+                    eapols = re.search(r"written to 22000 file.*?(\d+)", out)
+                    
+                    new_total = 0
+                    if pmkids: new_total += int(pmkids.group(1))
+                    if eapols: new_total += int(eapols.group(1))
+                    
+                    if new_total > self.verified_hashes:
+                        diff = new_total - self.verified_hashes
+                        self.log_buffer.append(f"[*] ALERT: {diff} NEW HASHES VERIFIED!")
+                        self.app.sfx.play("select") # High-pitch alert
+                        self.verified_hashes = new_total
+                except: pass
+            time.sleep(10)
 
     def _bt_engine(self):
         while not self._stop_event.is_set():
@@ -150,7 +183,7 @@ class WardrivingScreen(Screen):
                             self.bt_found += 1
                             if self.linked:
                                 self._log_to_wigle(mac, name, "[BT]", 0, -70, "BT")
-                            self.log_buffer.append(f"[+] BT: {name[:15]}")
+                            self.log_buffer.append(f"[+] BT: {name[:12]} ({self._get_vendor(mac)})")
                 subprocess.run(["sudo", "timeout", "-s", "INT", "1s", "hcitool", "-i", self.bt_iface, "lescan"], capture_output=True)
             except: pass
             time.sleep(3)
@@ -197,7 +230,7 @@ class WardrivingScreen(Screen):
 
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
-        self.app.statusbar.draw(surf, theme, "RECON: WARDRIVING PRO")
+        self.app.statusbar.draw(surf, theme, "RECON: WARDRIVING PRO 2.0")
 
         accent = theme.color("accent")
         accent2 = theme.color("accent2")
@@ -229,26 +262,28 @@ class WardrivingScreen(Screen):
         pygame.draw.rect(surf, theme.color("tile"), stats_rect, border_radius=8)
         pygame.draw.rect(surf, accent, stats_rect, width=1, border_radius=8)
         
-        # Grid inside stats
         surf.blit(small.render("WIFI APS", True, dim), (stats_rect.x + 10, stats_rect.y + 5))
         surf.blit(title_f.render(str(self.aps_found), True, accent), (stats_rect.x + 10, stats_rect.y + 18))
         
         surf.blit(small.render("BT DEVICES", True, dim), (stats_rect.x + 110, stats_rect.y + 5))
         surf.blit(title_f.render(str(self.bt_found), True, accent2), (stats_rect.x + 110, stats_rect.y + 18))
 
-        surf.blit(small.render("HANDSHAKES (PCAPNG)", True, dim), (stats_rect.x + 10, stats_rect.y + 60))
-        h_color = theme.color("danger") if self.handshakes > 0 else dim
-        surf.blit(title_f.render(str(self.handshakes), True, h_color), (stats_rect.x + 10, stats_rect.y + 75))
+        surf.blit(small.render("VERIFIED HASHES", True, dim), (stats_rect.x + 10, stats_rect.y + 60))
+        h_color = theme.color("danger") if self.verified_hashes > 0 else dim
+        surf.blit(title_f.render(str(self.verified_hashes), True, h_color), (stats_rect.x + 10, stats_rect.y + 75))
 
         # 3. LIVE LOG (Bottom)
         log_rect = pygame.Rect(10, 160, config.SCREEN_W - 20, config.SCREEN_H - 195)
-        pygame.draw.rect(surf, (0, 0, 0, 150), log_rect, border_radius=8)
+        pygame.draw.rect(surf, (0, 0, 0, 180), log_rect, border_radius=8)
         pygame.draw.rect(surf, accent, log_rect, width=1, border_radius=8)
         
         y = log_rect.y + 5
         for entry in self.log_buffer:
-            surf.blit(small.render(entry, True, theme.color("text")), (log_rect.x + 10, y))
-            y += 15
+            col = theme.color("text")
+            if "[+]" in entry: col = accent
+            if "[*]" in entry: col = theme.color("danger")
+            surf.blit(small.render(entry, True, col), (log_rect.x + 10, y))
+            y += 14
         
         # Interface Indicators
         if int(time.time()) % 2 == 0:
