@@ -247,3 +247,47 @@ function showToast(msg, type = 'info') {
 
 // Initial Load
 showSection('dashboard');
+loadWigleConfig();
+
+async function loadWigleConfig() {
+    try {
+        const res = await fetch('/api/wigle');
+        const data = await res.json();
+        document.getElementById('wigle-name').value = data.api_name || '';
+        document.getElementById('wigle-key').value = data.api_key || '';
+    } catch (err) {}
+}
+
+async function updateWigleConfig() {
+    const api_name = document.getElementById('wigle-name').value;
+    const api_key = document.getElementById('wigle-key').value;
+    try {
+        const res = await fetch('/api/wigle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_name, api_key })
+        });
+        if (res.ok) showToast('WiGLE Config Saved', 'success');
+    } catch (err) {
+        showToast('Failed to save config', 'danger');
+    }
+}
+
+async function uploadWigle() {
+    const status = document.getElementById('wigle-status');
+    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing WiGLE upload...';
+    try {
+        const res = await fetch('/api/wigle/upload', { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+            showToast('WiGLE Upload Successful!', 'success');
+            status.innerHTML = `<span class="text-success">Success: ${result.details.id || 'Uploaded'}</span>`;
+        } else {
+            showToast(result.error, 'danger');
+            status.innerHTML = `<span class="text-danger">${result.error}</span>`;
+        }
+    } catch (err) {
+        showToast('Upload Error', 'danger');
+        status.innerHTML = '';
+    }
+}

@@ -164,6 +164,60 @@ def api_stats(): return jsonify(get_sys_info())
 def get_mobile_gps():
     return jsonify(mobile_data)
 
+@app.route('/api/wigle', methods=['GET', 'POST'])
+def handle_wigle_config():
+    path = BASE_DIR / "config" / "wigle.json"
+    if request.method == 'POST':
+        data = request.json
+        with open(path, 'w') as f:
+            json.dump(data, f)
+        return jsonify({"success": True})
+    
+    if path.exists():
+        with open(path, 'r') as f:
+            return jsonify(json.load(f))
+    return jsonify({"api_name": "", "api_key": ""})
+
+@app.route('/api/wigle/upload', methods=['POST'])
+def upload_to_wigle():
+    cfg_path = BASE_DIR / "config" / "wigle.json"
+    if not cfg_path.exists():
+        return jsonify({"error": "WiGLE API keys not configured"}), 400
+    
+    with open(cfg_path, 'r') as f:
+        cfg = json.load(f)
+    
+    if not cfg.get("api_name") or not cfg.get("api_key"):
+        return jsonify({"error": "WiGLE API keys missing"}), 400
+
+    target_dir = Path.home() / "neo" / "loot" / "wardrive"
+    files = list(target_dir.glob("*.csv"))
+    if not files:
+        return jsonify({"error": "No wardrive files found to upload"}), 404
+    
+    # Upload newest file
+    files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    latest = files[0]
+    
+    import requests
+    from requests.auth import HTTPBasicAuth
+    
+    try:
+        with open(latest, 'rb') as f:
+            r = requests.post(
+                "https://api.wigle.net/api/v2/file/upload",
+                auth=HTTPBasicAuth(cfg["api_name"], cfg["api_key"]),
+                files={'file': f},
+                timeout=30
+            )
+        
+        if r.status_code == 200:
+            return jsonify({"success": True, "details": r.json()})
+        else:
+            return jsonify({"error": f"WiGLE API Error: {r.status_code}", "details": r.text}), r.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/files', methods=['GET'])
 def list_files():
     section = request.args.get('section', 'roms')
