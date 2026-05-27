@@ -59,12 +59,12 @@ class StatusBar:
         self._refresh_net()
         cy = HEIGHT // 2
         x = w - 8
-        clock = font.render(time.strftime("%I:%M %p").lstrip("0"), True, text)
+        clock = font.render(time.strftime("%I:%M %p").lstrip("0"), True, accent)
         x -= clock.get_width()
         surf.blit(clock, (x, cy - clock.get_height() // 2))
 
         if self._ip:
-            ipt = font.render(self._ip, True, dim)
+            ipt = font.render(self._ip, True, accent)
             x -= ipt.get_width() + 10
             surf.blit(ipt, (x, cy - ipt.get_height() // 2))
 

@@ -345,7 +345,7 @@ class App:
             kt = font.render(key, True, theme.color("accent"))
             surf.blit(kt, (x, y0 + HINT_H // 2 - kt.get_height() // 2))
             x += kt.get_width() + 4
-            lt = font.render(label, True, theme.color("text_dim"))
+            lt = font.render(label, True, theme.color("accent"))
             surf.blit(lt, (x, y0 + HINT_H // 2 - lt.get_height() // 2))
             x += lt.get_width() + 14
 
