@@ -291,7 +291,10 @@ class App:
         cmd = (
             f"cd {base} && echo 'Checking for updates...' && "
             "git fetch --quiet origin && BEFORE=$(git rev-parse HEAD) && "
-            "git pull --ff-only && AFTER=$(git rev-parse HEAD) && echo && "
+            "echo 'Stashing local changes...' && git stash --quiet && "
+            "echo 'Pulling latest code...' && git pull --rebase origin master && "
+            "echo 'Restoring local changes...' && git stash pop --quiet || true && "
+            "AFTER=$(git rev-parse HEAD) && echo && "
             "if [ \"$BEFORE\" = \"$AFTER\" ]; then echo 'Already up to date.'; "
             "else echo 'Updated — press A to apply and restart.'; fi"
         )
