@@ -173,6 +173,10 @@ class App:
             from .screens.loot import LootScreen
             self.push(LootScreen(self))
             return
+        if screen_req == "ble_spam":
+            from .screens.ble_spam import BLESpamScreen
+            self.push(BLESpamScreen(self))
+            return
 
         # ROM-based games: show a picker first so you choose which ROM to play.
         if meta.get("roms"):
