@@ -31,10 +31,17 @@ class BLESpamScreen(Screen):
         self.cursor = 0
         self.error_msg = ""
         self.packets_sent = 0
-        self.iface = "hci0"
+        self.iface = self._get_best_iface()
         
         self._stop_event = threading.Event()
         self._spam_thread = None
+
+    def _get_best_iface(self) -> str:
+        try:
+            out = subprocess.check_output(["hciconfig"]).decode()
+            if "hci1" in out: return "hci1"
+        except: pass
+        return "hci0"
 
     def on_action(self, action: str):
         if action == "B":

