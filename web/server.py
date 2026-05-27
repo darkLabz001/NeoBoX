@@ -295,5 +295,13 @@ def handle_gps(data):
     socketio.emit('mobile_gps_broadcast', data, namespace='/system')
 
 if __name__ == '__main__':
-    print("--- NeoBox Web UI Core 2.0 Starting ---")
-    socketio.run(app, host='0.0.0.0', port=8888, debug=False)
+    print("--- NeoBox Web UI Core 2.0 Starting (HTTPS) ---")
+    cert_path = BASE_DIR / "certs" / "cert.pem"
+    key_path = BASE_DIR / "certs" / "key.pem"
+    
+    if cert_path.exists() and key_path.exists():
+        socketio.run(app, host='0.0.0.0', port=8888, debug=False, 
+                     keyfile=str(key_path), certfile=str(cert_path))
+    else:
+        print("[!] SSL certs missing, falling back to HTTP")
+        socketio.run(app, host='0.0.0.0', port=8888, debug=False)
