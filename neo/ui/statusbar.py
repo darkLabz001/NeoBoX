@@ -5,70 +5,69 @@ import subprocess
 import time
 
 import pygame
+from ..font_cache import render_text
 
 HEIGHT = 26
 
 
 class StatusBar:
     def __init__(self):
-        self._wifi = "—"
         self._ip = ""
-        self._checked = 0.0
+        self._wifi = "—"
+        self._last_poll = 0.0
 
-    def _refresh_net(self):
-        """Refresh SSID + IP at most every 5s; cheap and non-blocking enough."""
+    def _poll(self):
         now = time.time()
-        if now - self._checked <= 5:
+        if now - self._last_poll < 5.0:
             return
-        self._checked = now
+        self._last_poll = now
         try:
-            out = subprocess.run(
-                ["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"],
-                capture_output=True, text=True, timeout=2,
-            ).stdout
-            self._wifi = next((l.split(":", 1)[1] or "wifi"
-                               for l in out.splitlines() if l.startswith("yes:")), "off")
+            # Quick SSID check
+            out = subprocess.check_output(
+                ["iwgetid", "-r"], stderr=subprocess.DEVNULL).decode().strip()
+            self._wifi = out or "off"
         except Exception:
-            self._wifi = "?"
-        # Local IP on whatever network we're routed through (no packets sent).
+            self._wifi = "off"
+
         try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            self._ip = s.getsockname()[0]
-            s.close()
+            # IP on wlan0
+            out = subprocess.check_output(
+                ["hostname", "-I"], stderr=subprocess.DEVNULL).decode().split()
+            self._ip = out[0] if out else ""
         except Exception:
             self._ip = ""
 
-    def draw(self, surf: pygame.Surface, theme, title: str = "NEO", transparent: bool = False):
-        w = surf.get_width()
+    def draw(self, surf: pygame.Surface, theme, title: str, transparent=False):
+        self._poll()
+        if not transparent:
+            pygame.draw.rect(surf, theme.color("bar"), (0, 0, surf.get_width(), HEIGHT))
+            pygame.draw.line(surf, theme.color("text_dim"), (0, HEIGHT - 1), (surf.get_width(), HEIGHT - 1))
+
         font = theme.font("small")
+        title_font = theme.font("ui")
         accent = theme.color("accent")
         text = theme.color("text")
         dim = theme.color("text_dim")
 
-        if not transparent:
-            pygame.draw.rect(surf, theme.color("bar"), pygame.Rect(0, 0, w, HEIGHT))
-            pygame.draw.line(surf, accent, (0, HEIGHT), (w, HEIGHT), 1)
-            # Left: title with an accent square
-            pygame.draw.rect(surf, accent, (8, HEIGHT // 2 - 4, 8, 8), border_radius=2)
-            t = font.render(title.upper(), True, text)
-            surf.blit(t, (22, HEIGHT // 2 - t.get_height() // 2))
+        # Title
+        tt = render_text(title_font, title.upper(), text)
+        surf.blit(tt, (10, HEIGHT // 2 - tt.get_height() // 2))
 
-        # Right side, right-to-left: clock, IP, wifi SSID (12-hour, e.g. "9:35 PM")
-        self._refresh_net()
+        # Right side: clock, IP, wifi
+        x = surf.get_width() - 10
         cy = HEIGHT // 2
-        x = w - 8
-        clock = font.render(time.strftime("%I:%M %p").lstrip("0"), True, accent)
+
+        clock_str = time.strftime("%I:%M %p").lstrip("0")
+        clock = render_text(font, clock_str, accent)
         x -= clock.get_width()
         surf.blit(clock, (x, cy - clock.get_height() // 2))
 
         if self._ip:
-            ipt = font.render(self._ip, True, accent)
+            ipt = render_text(font, self._ip, accent)
             x -= ipt.get_width() + 10
             surf.blit(ipt, (x, cy - ipt.get_height() // 2))
 
         offline = self._wifi in ("off", "?", "—")
-        wt = font.render(f"≋ {self._wifi}", True, dim if offline else accent)
+        wt = render_text(font, f"≋ {self._wifi}", dim if offline else accent)
         x -= wt.get_width() + 10
         surf.blit(wt, (x, cy - wt.get_height() // 2))

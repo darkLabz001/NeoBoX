@@ -261,14 +261,21 @@ async function loadWigleConfig() {
 async function updateWigleConfig() {
     const api_name = document.getElementById('wigle-name').value;
     const api_key = document.getElementById('wigle-key').value;
+    console.log('[wigle] saving config...', { api_name });
     try {
         const res = await fetch('/api/wigle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_name, api_key })
         });
-        if (res.ok) showToast('WiGLE Config Saved', 'success');
+        if (res.ok) {
+            showToast('WiGLE Config Saved', 'success');
+        } else {
+            console.error('[wigle] save failed', res.status);
+            showToast('Failed to save config: ' + res.status, 'danger');
+        }
     } catch (err) {
+        console.error('[wigle] error', err);
         showToast('Failed to save config', 'danger');
     }
 }

@@ -1,4 +1,4 @@
-"""Wardriving PRO 3.0 — High-perf discovery + Real-time Hcx parsing (No Audio)."""
+"""Wardriving PRO 3.5 — High-perf discovery + Signal Density Graph."""
 from __future__ import annotations
 
 import os
@@ -18,11 +18,12 @@ import qrcode
 
 from . import Screen
 from .. import config
+from ..font_cache import render_text
 
 class WardrivingScreen(Screen):
     def __init__(self, app):
         super().__init__(app)
-        self.title = "WARDRIVING PRO 3.0"
+        self.title = "WARDRIVING PRO 3.5"
         self.aps_found = 0
         self.bt_found = 0
         self.verified_hashes = 0
@@ -31,7 +32,11 @@ class WardrivingScreen(Screen):
         
         self._seen_macs = set()
         self._seen_bt = set()
-        self.log_buffer = deque(maxlen=10)
+        self.log_buffer = deque(maxlen=8)
+        
+        # Performance: Signal Density Graph
+        self.signal_history = deque([0] * 60, maxlen=60) # 60 seconds of history
+        self._last_graph_update = 0
         
         # Adapters
         self.wifi_iface = "wlan1"
@@ -72,7 +77,7 @@ class WardrivingScreen(Screen):
         try:
             self.loot_dir.mkdir(parents=True, exist_ok=True)
             with open(self.log_path, "w", newline="") as f:
-                f.write("WigleWifi-1.4,appRelease=NeoBoX-PRO-3,model=Handheld,release=0.1,device=NeoBoX,display=None,board=None,brand=Neo\n")
+                f.write("WigleWifi-1.4,appRelease=NeoBoX-PRO-3.5,model=Handheld,release=0.1,device=NeoBoX,display=None,board=None,brand=Neo\n")
                 f.write("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n")
         except: pass
 
@@ -96,54 +101,42 @@ class WardrivingScreen(Screen):
 
     def _start_engines(self):
         self._stop_event.clear()
-        # WiFi and BT threads
         threading.Thread(target=self._wifi_engine, daemon=True).start()
         threading.Thread(target=self._bt_engine, daemon=True).start()
         threading.Thread(target=self._gps_poll_loop, daemon=True).start()
         threading.Thread(target=self._verification_loop, daemon=True).start()
 
     def _wifi_engine(self):
-        """Ultra-efficient WiFi discovery via hcxdumptool real-time output."""
-        # 1. Prepare interface
         subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "down"], capture_output=True)
         subprocess.run(["sudo", "iw", "dev", self.wifi_iface, "set", "type", "monitor"], capture_output=True)
         subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "up"], capture_output=True)
         
         self.log_buffer.append(f"[*] {self.wifi_iface}: Monitor Active")
 
-        # 2. Start hcxdumptool with status and active beacon detection
-        # --enable_status=1: prints found MACs/SSIDs to stdout
         cmd = [
             "sudo", "hcxdumptool", "-i", self.wifi_iface,
             "-o", str(self.pcap_path),
             "--enable_status=1",
-            "--active_beacon" # Broaden discovery
+            "--active_beacon"
         ]
         try:
             self._wifi_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            
-            # 3. Live parser for discovery
-            # hcxdumptool output example: [09:34:22 - 001] [SSID: MyWiFi] [BSSID: 00:11:22:33:44:55]
             ssid_re = re.compile(r"SSID:\s*(.*?)\]")
             bssid_re = re.compile(r"BSSID:\s*([0-9a-fA-F:]{17})")
             
             for line in self._wifi_proc.stdout:
                 if self._stop_event.is_set(): break
-                
                 b_match = bssid_re.search(line)
                 if b_match:
                     bssid = b_match.group(1).upper()
                     if bssid not in self._seen_macs:
                         self._seen_macs.add(bssid)
                         self.aps_found += 1
-                        
                         ssid = "Unknown"
                         s_match = ssid_re.search(line)
                         if s_match: ssid = s_match.group(1)
-                        
                         vendor = self._get_vendor(bssid)
                         self.log_buffer.append(f"[W] {ssid[:10]} | {vendor}")
-                        
                         if self.linked:
                             self._log_to_wigle(bssid, ssid, "[WPA]", 0, -70, "WIFI")
         except: pass
@@ -164,12 +157,9 @@ class WardrivingScreen(Screen):
             time.sleep(15)
 
     def _bt_engine(self):
-        """High-speed BT discovery via bluetoothctl scan."""
         subprocess.run(["sudo", "bluetoothctl", "power", "on"], capture_output=True)
-        # Start a persistent background scan if possible or loop hcitool
         while not self._stop_event.is_set():
             try:
-                # Use bluetoothctl for faster/cleaner name resolution
                 cmd = ["sudo", "hcitool", "-i", self.bt_iface, "scan", "--flush"]
                 out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).splitlines()
                 for line in out:
@@ -220,14 +210,19 @@ class WardrivingScreen(Screen):
             self.app.pop()
 
     def update(self, dt: float):
-        pass
+        # Update signal density history every second
+        now = time.time()
+        if now - self._last_graph_update >= 1.0:
+            # Signal density = total new devices in last second (approx)
+            self.signal_history.append(len(self._seen_macs) + len(self._seen_bt))
+            self._last_graph_update = now
 
     def is_animating(self):
         return True
 
     def draw(self, surf, theme):
         self.app.draw_wallpaper(surf, theme)
-        self.app.statusbar.draw(surf, theme, "RECON: WARDRIVING PRO 3.0")
+        self.app.statusbar.draw(surf, theme, "RECON: WARDRIVING PRO 3.5")
 
         accent = theme.color("accent")
         accent2 = theme.color("accent2")
@@ -235,7 +230,6 @@ class WardrivingScreen(Screen):
         ui, small = theme.font("ui"), theme.font("small")
         title_f = theme.font("title")
         
-        # Layout: Vertical splits
         # 1. GPS (Top Left)
         link_rect = pygame.Rect(10, 40, 160, 110)
         pygame.draw.rect(surf, theme.color("tile"), link_rect, border_radius=8)
@@ -244,30 +238,42 @@ class WardrivingScreen(Screen):
         if not self.linked:
             if hasattr(self, 'qr_surf'):
                 surf.blit(self.qr_surf, (link_rect.centerx - self.qr_surf.get_width()//2, link_rect.y + 5))
-            surf.blit(small.render("PHONE GPS LINK", True, accent), (link_rect.x + 35, link_rect.bottom - 18))
+            surf.blit(render_text(small, "PHONE GPS LINK", accent), (link_rect.x + 35, link_rect.bottom - 18))
         else:
-            surf.blit(small.render("GPS LINK: ACTIVE", True, theme.color("danger")), (link_rect.x + 10, link_rect.y + 8))
-            surf.blit(ui.render(f"LAT: {self.gps['lat']:.5f}", True, theme.color("text")), (link_rect.x + 10, link_rect.y + 30))
-            surf.blit(ui.render(f"LON: {self.gps['lon']:.5f}", True, theme.color("text")), (link_rect.x + 10, link_rect.y + 52))
+            surf.blit(render_text(small, "GPS LINK: ACTIVE", theme.color("danger")), (link_rect.x + 10, link_rect.y + 8))
+            surf.blit(render_text(ui, f"LAT: {self.gps['lat']:.5f}", theme.color("text")), (link_rect.x + 10, link_rect.y + 30))
+            surf.blit(render_text(ui, f"LON: {self.gps['lon']:.5f}", theme.color("text")), (link_rect.x + 10, link_rect.y + 52))
             pygame.draw.rect(surf, (0,0,0), (link_rect.x + 10, link_rect.y + 85, 140, 4))
             acc_w = max(2, 140 - int(self.gps['acc'] * 2))
             pygame.draw.rect(surf, accent, (link_rect.x + 10, link_rect.y + 85, min(140, acc_w), 4))
-            surf.blit(small.render(f"ACCURACY: {self.gps['acc']:.1f}m", True, dim), (link_rect.x + 10, link_rect.y + 92))
+            surf.blit(render_text(small, f"ACCURACY: {self.gps['acc']:.1f}m", dim), (link_rect.x + 10, link_rect.y + 92))
 
-        # 2. STATS (Right)
+        # 2. STATS & GRAPH (Right)
         stats_rect = pygame.Rect(180, 40, config.SCREEN_W - 190, 110)
         pygame.draw.rect(surf, theme.color("tile"), stats_rect, border_radius=8)
         pygame.draw.rect(surf, accent, stats_rect, width=1, border_radius=8)
         
-        surf.blit(small.render("WIFI APS", True, dim), (stats_rect.x + 10, stats_rect.y + 5))
-        surf.blit(title_f.render(str(self.aps_found), True, accent), (stats_rect.x + 10, stats_rect.y + 18))
+        surf.blit(render_text(small, "WIFI", dim), (stats_rect.x + 10, stats_rect.y + 5))
+        surf.blit(render_text(title_f, str(self.aps_found), accent), (stats_rect.x + 10, stats_rect.y + 18))
         
-        surf.blit(small.render("BT DEVICES", True, dim), (stats_rect.x + 110, stats_rect.y + 5))
-        surf.blit(title_f.render(str(self.bt_found), True, accent2), (stats_rect.x + 110, stats_rect.y + 18))
+        surf.blit(render_text(small, "BT", dim), (stats_rect.x + 75, stats_rect.y + 5))
+        surf.blit(render_text(title_f, str(self.bt_found), accent2), (stats_rect.x + 75, stats_rect.y + 18))
 
-        surf.blit(small.render("VERIFIED HASHES", True, dim), (stats_rect.x + 10, stats_rect.y + 60))
+        surf.blit(render_text(small, "HASHES", dim), (stats_rect.x + 140, stats_rect.y + 5))
         h_color = theme.color("danger") if self.verified_hashes > 0 else dim
-        surf.blit(title_f.render(str(self.verified_hashes), True, h_color), (stats_rect.x + 10, stats_rect.y + 75))
+        surf.blit(render_text(title_f, str(self.verified_hashes), h_color), (stats_rect.x + 140, stats_rect.y + 18))
+
+        # Signal Density Graph
+        graph_rect = pygame.Rect(stats_rect.x + 10, stats_rect.y + 60, stats_rect.width - 20, 40)
+        pygame.draw.rect(surf, (0,0,0, 100), graph_rect)
+        if len(self.signal_history) > 1:
+            max_v = max(max(self.signal_history), 5)
+            pts = []
+            for i, val in enumerate(self.signal_history):
+                x = graph_rect.x + (i * (graph_rect.width / 59))
+                y = graph_rect.bottom - (val / max_v * graph_rect.height)
+                pts.append((x, y))
+            pygame.draw.lines(surf, accent, False, pts, 1)
 
         # 3. LIVE LOG (Bottom)
         log_rect = pygame.Rect(10, 160, config.SCREEN_W - 20, config.SCREEN_H - 195)
@@ -280,7 +286,7 @@ class WardrivingScreen(Screen):
             if "[W]" in entry: col = accent
             if "[B]" in entry: col = accent2
             if "[*]" in entry: col = theme.color("danger")
-            surf.blit(small.render(entry, True, col), (log_rect.x + 10, y))
+            surf.blit(render_text(small, entry, col), (log_rect.x + 10, y))
             y += 14
 
     def hints(self):

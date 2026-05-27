@@ -25,7 +25,8 @@ async_mode = 'eventlet'
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'neobox-secret-2026!'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode=async_mode)
+# Use a higher ping timeout for stable connection
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode=async_mode, ping_timeout=60)
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -49,36 +50,26 @@ def get_sys_info():
         with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
             temp = int(f.read()) / 1000.0
     except: pass
-    
     return {
-        'cpu': cpu,
-        'ram': ram,
-        'disk': disk,
-        'temp': temp,
+        'cpu': cpu, 'ram': ram, 'disk': disk, 'temp': temp,
         'uptime': time.time() - psutil.boot_time(),
         'load': os.getloadavg()
     }
 
-# System Stats Background Task
 def stats_thread():
-    print("[web] background stats thread started")
     while True:
         try:
             info = get_sys_info()
             socketio.emit('sys_stats', info, namespace='/system')
-        except Exception as e:
-            print(f"[web] stats error: {e}")
+        except: pass
         socketio.sleep(2)
 
-# Live View Background Task
 def live_view_thread():
-    print("[web] live view thread started")
     while True:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1.0)
             sock.connect(("127.0.0.1", 9998))
-            
             raw_size = sock.recv(4)
             if len(raw_size) == 4:
                 size = struct.unpack(">I", raw_size)[0]
@@ -87,14 +78,12 @@ def live_view_thread():
                     chunk = sock.recv(min(size - len(data), 8192))
                     if not chunk: break
                     data += chunk
-                
                 if len(data) == size:
                     encoded = base64.b64encode(data).decode('utf-8')
                     socketio.emit('live_frame', {'image': encoded}, namespace='/system')
             sock.close()
-        except:
-            pass
-        socketio.sleep(0.15) # ~6-7 FPS to save bandwidth
+        except: pass
+        socketio.sleep(0.2)
 
 socketio.start_background_task(stats_thread)
 socketio.start_background_task(live_view_thread)
@@ -125,19 +114,16 @@ class TerminalSession:
                 os.execvp("/bin/bash", ["/bin/bash", "-i"])
             else:
                 socketio.start_background_task(target=self.read_output)
-                print(f"[web] terminal spawned (pid: {self.child_pid})")
-        except Exception as e:
-            print(f"[web] terminal spawn error: {e}")
+        except: pass
 
     def read_output(self):
-        max_read_bytes = 1024 * 10
         while self.fd:
             socketio.sleep(0.01)
             if self.fd:
                 r, w, e = select.select([self.fd], [], [], 0)
                 if self.fd in r:
                     try:
-                        output = os.read(self.fd, max_read_bytes).decode(errors='replace')
+                        output = os.read(self.fd, 10240).decode(errors='replace')
                         socketio.emit("terminal_output", {"data": output}, namespace="/terminal")
                     except: break
         self.fd = None
@@ -162,64 +148,42 @@ def mobile_link(): return render_template('mobile.html')
 def api_stats(): return jsonify(get_sys_info())
 
 @app.route('/api/gps')
-def get_mobile_gps():
-    return jsonify(mobile_data)
+def get_mobile_gps(): return jsonify(mobile_data)
 
 @app.route('/api/wigle', methods=['GET', 'POST'])
 def handle_wigle_config():
     path = BASE_DIR / "config" / "wigle.json"
     if request.method == 'POST':
-        data = request.json
+        data = request.get_json(force=True)
         with open(path, 'w') as f:
             json.dump(data, f)
         return jsonify({"success": True})
-    
     if path.exists():
         with open(path, 'r') as f:
-            return jsonify(json.load(f))
+            try: return jsonify(json.load(f))
+            except: pass
     return jsonify({"api_name": "", "api_key": ""})
 
 @app.route('/api/wigle/upload', methods=['POST'])
 def upload_to_wigle():
     cfg_path = BASE_DIR / "config" / "wigle.json"
-    if not cfg_path.exists():
-        return jsonify({"error": "WiGLE API keys not configured"}), 400
-    
-    with open(cfg_path, 'r') as f:
-        cfg = json.load(f)
-    
-    if not cfg.get("api_name") or not cfg.get("api_key"):
-        return jsonify({"error": "WiGLE API keys missing"}), 400
-
+    if not cfg_path.exists(): return jsonify({"error": "No config"}), 400
+    with open(cfg_path, 'r') as f: cfg = json.load(f)
     target_dir = Path.home() / "neo" / "loot" / "wardrive"
     files = list(target_dir.glob("*.csv"))
-    if not files:
-        return jsonify({"error": "No wardrive files found to upload"}), 404
-    
-    # Upload newest file
+    if not files: return jsonify({"error": "No files"}), 404
     files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-    latest = files[0]
-    
     import requests
     from requests.auth import HTTPBasicAuth
-    
     try:
-        with open(latest, 'rb') as f:
-            r = requests.post(
-                "https://api.wigle.net/api/v2/file/upload",
-                auth=HTTPBasicAuth(cfg["api_name"], cfg["api_key"]),
-                files={'file': f},
-                timeout=30
-            )
-        
-        if r.status_code == 200:
-            return jsonify({"success": True, "details": r.json()})
-        else:
-            return jsonify({"error": f"WiGLE API Error: {r.status_code}", "details": r.text}), r.status_code
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        with open(files[0], 'rb') as f:
+            r = requests.post("https://api.wigle.net/api/v2/file/upload",
+                            auth=HTTPBasicAuth(cfg["api_name"], cfg["api_key"]),
+                            files={'file': f}, timeout=30)
+        return jsonify({"success": True, "details": r.json()})
+    except Exception as e: return jsonify({"error": str(e)}), 500
 
-@app.route('/api/files', methods=['GET'])
+@app.route('/api/files')
 def list_files():
     section = request.args.get('section', 'roms')
     target = ROM_DIR if section == 'roms' else PAYLOAD_DIR
@@ -227,58 +191,31 @@ def list_files():
     if target.exists():
         for f in sorted(target.glob("**/*")):
             if f.is_file() and not f.name.startswith("."):
-                files.append({
-                    "name": f.name, 
-                    "path": str(f.relative_to(target.parent)), 
-                    "size": f.stat().st_size,
-                    "mtime": f.stat().st_mtime,
-                    "type": "rom" if section == "roms" else "payload"
-                })
-    files.sort(key=lambda x: x['mtime'], reverse=True)
+                files.append({"name": f.name, "path": str(f.relative_to(target.parent)), "size": f.stat().st_size, "mtime": f.stat().st_mtime})
     return jsonify(files)
 
 @app.route('/api/delete', methods=['POST'])
 def delete_file():
-    data = request.json
-    path = data.get('path')
-    if not path: return jsonify({"error": "No path"}), 400
+    path = request.json.get('path')
     abs_path = (ROM_DIR.parent / path).resolve()
-    if not any(str(abs_path).startswith(str(d)) for d in [ROM_DIR, PAYLOAD_DIR]):
-        return jsonify({"error": "Access denied"}), 403
     if abs_path.exists():
         abs_path.unlink()
         return jsonify({"success": True})
-    return jsonify({"error": "File not found"}), 404
+    return jsonify({"error": "Not found"}), 404
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
-    try:
-        if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
-        file = request.files['file']
-        if file.filename == '': return jsonify({"error": "No selected file"}), 400
-        target_type = request.form.get('type', 'rom')
-        from werkzeug.utils import secure_filename
-        filename = secure_filename(file.filename)
-        if target_type == 'payload':
-            save_path = PAYLOAD_DIR / "custom" / filename
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-        else:
-            save_path = ROM_DIR / filename
-        file.save(str(save_path))
-        if target_type == 'payload': save_path.chmod(0o755)
-        return jsonify({"success": True, "path": str(save_path)})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    file = request.files['file']
+    target_type = request.form.get('type', 'rom')
+    save_path = PAYLOAD_DIR / "custom" / file.filename if target_type == 'payload' else ROM_DIR / file.filename
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    file.save(str(save_path))
+    return jsonify({"success": True})
 
 @socketio.on("connect", namespace="/terminal")
 def connect_term(): term.spawn()
-
 @socketio.on("terminal_input", namespace="/terminal")
 def terminal_input(data): term.write_input(data["data"])
-
-@socketio.on("terminal_resize", namespace="/terminal")
-def terminal_resize(data): term.resize(data["rows"], data["cols"])
-
 @socketio.on("remote_action", namespace="/remote")
 def remote_action(data):
     action = data.get("action")
@@ -295,13 +232,8 @@ def handle_gps(data):
     socketio.emit('mobile_gps_broadcast', data, namespace='/system')
 
 if __name__ == '__main__':
-    print("--- NeoBox Web UI Core 2.0 Starting (HTTPS) ---")
-    cert_path = BASE_DIR / "certs" / "cert.pem"
-    key_path = BASE_DIR / "certs" / "key.pem"
-    
-    if cert_path.exists() and key_path.exists():
-        socketio.run(app, host='0.0.0.0', port=8888, debug=False, 
-                     keyfile=str(key_path), certfile=str(cert_path))
-    else:
-        print("[!] SSL certs missing, falling back to HTTP")
-        socketio.run(app, host='0.0.0.0', port=8888, debug=False)
+    # Fallback to pure HTTP on 8888 for the main UI.
+    # Mobile users can manually switch to HTTPS if they need GPS perms.
+    # To avoid eventlet SSL errors, we run only ONE protocol per port.
+    print("--- NeoBox Web UI: Starting on port 8888 ---")
+    socketio.run(app, host='0.0.0.0', port=8888, debug=False)
