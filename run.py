@@ -43,7 +43,15 @@ def main():
     print("[DEBUG] App instance creation...")
     app = App(mode=args.mode, scale=args.scale, use_gpio=args.gpio, **kwargs)
     print("[DEBUG] App instance created.")
-    if args.intro or (not args.screenshot and not args.no_intro):
+    # Skip the intro on an in-place restart (OTA `os.execv`, dev relaunch, etc.)
+    # so you land at home instantly; only show it on a cold boot.
+    def _kernel_uptime():
+        try:
+            with open("/proc/uptime") as fh: return float(fh.read().split()[0])
+        except Exception: return 0.0
+    cold_boot = _kernel_uptime() < 60
+
+    if args.intro or (not args.screenshot and not args.no_intro and cold_boot):
         from neo.screens.intro import IntroScreen
         app.push(IntroScreen(app))
     else:
