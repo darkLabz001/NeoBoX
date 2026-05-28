@@ -188,6 +188,9 @@ class App:
         elif screen_req == "wardrive":
             from .screens.wardriving import WardrivingScreen
             self.push(WardrivingScreen(self))
+        elif screen_req == "flock":
+            from .screens.flock import FlockScreen
+            self.push(FlockScreen(self, meta))
         elif meta.get("roms"):
             from .screens.rompicker import RomPickerScreen
             self.push(RomPickerScreen(self, meta))
