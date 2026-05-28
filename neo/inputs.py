@@ -72,7 +72,10 @@ class GpioBackend:
     def __init__(self, config_path, on_press: Callable[[str], None], poll_hz: int = 120):
         self.on_press = on_press
         self.poll_interval = 1.0 / poll_hz
-        self.coalesce = 0.06
+        # Window we hold combo-participating buttons before firing them solo
+        # (so a true MENU/EXIT chord can form). 40 ms is snappy without
+        # misfiring the chord on a deliberate two-button press.
+        self.coalesce = 0.04
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
