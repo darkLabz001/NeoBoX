@@ -10,6 +10,8 @@ keybridge.log
 wifi.log
 web.log
 NOAUTOSTART
+loot/            # handshakes/captures collected at runtime
+.ota_backup_*/   # backups the OTA makes when reconciling local files
 
 # Dev previews / local
 previews/

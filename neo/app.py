@@ -233,9 +233,10 @@ class App:
     def run_ota(self):
         import shlex
         from .screens.console import ConsoleScreen
-        base = shlex.quote(str(config.BASE_DIR))
-        cmd = f"cd {base} && git fetch && git stash && git pull --rebase && git stash pop || true"
-        self.push(ConsoleScreen(self, {"name": "Update", "cmd": cmd, "mode": "capture"}, complete_action=("restart", self.restart)))
+        script = shlex.quote(str(config.BASE_DIR / "scripts" / "ota_pull.sh"))
+        cmd = f"bash {script}"
+        self.push(ConsoleScreen(self, {"name": "Update", "cmd": cmd, "mode": "capture"},
+                                complete_action=("apply & restart", self.restart)))
 
     def restart(self):
         import os, sys
