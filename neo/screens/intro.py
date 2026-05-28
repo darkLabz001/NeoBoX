@@ -27,12 +27,13 @@ BOOT_LINES = [
     "> NEOBOX CORE ........... READY",
 ]
 
-T_LOG = 0.8       # boot log starts
-T_LINE = 0.42     # per line
-T_LOGO = 4.0      # logo reveal
-T_TAG = 6.2       # tagline
-T_FLASH = 8.4
-T_END = 9.4
+# Tightened so the device gets to home fast (was 9.4s; ~half of that now).
+T_LOG = 0.3       # boot log starts
+T_LINE = 0.24     # per line
+T_LOGO = 1.6      # logo reveal
+T_TAG = 3.0       # tagline
+T_FLASH = 4.0
+T_END = 4.8
 
 
 class IntroScreen(Screen):
@@ -78,6 +79,8 @@ class IntroScreen(Screen):
 
     # --- lifecycle ------------------------------------------------------
     def on_action(self, action: str):
+        # Hard-cut to home so any button press feels instant — no music fadeout.
+        self.skipped = True
         self._finish()
 
     def update(self, dt: float):
@@ -93,7 +96,11 @@ class IntroScreen(Screen):
             return
         self.done = True
         try:
-            pygame.mixer.music.fadeout(1200)
+            # Instant stop on a user skip (no 1.2s music fadeout in the way).
+            if getattr(self, "skipped", False):
+                pygame.mixer.music.stop()
+            else:
+                pygame.mixer.music.fadeout(600)
         except Exception:
             pass
         self.app.go_home()

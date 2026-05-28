@@ -323,7 +323,7 @@ class App:
         if self.mode == "headless": return
         if self._transition:
             # Handle the slide transition
-            self._transition["pos"] += 0.1 # Transition speed
+            self._transition["pos"] += 0.18  # snappier (~100ms at 60fps)
             if self._transition["pos"] >= 1.0:
                 self._transition = None
                 self.window.blit(self.logical, (0,0))
