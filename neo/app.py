@@ -269,18 +269,15 @@ class App:
         else: surf.fill(theme.color("bg"))
 
     def _draw_hints(self, surf, theme):
+        from .ui import panel
         y0 = config.SCREEN_H - HINT_H
+        # bar background + accent rule on top
         pygame.draw.rect(surf, theme.color("bar"), (0, y0, config.SCREEN_W, HINT_H))
-        pygame.draw.line(surf, theme.color("text_dim"), (0, y0), (config.SCREEN_W, y0), 1)
-        font = theme.font("small")
+        pygame.draw.line(surf, theme.color("accent"), (0, y0), (config.SCREEN_W, y0), 1)
+        cy = y0 + HINT_H // 2
         x = 10
         for key, label in self.current.hints():
-            kt = render_text(font, key, theme.color("accent"))
-            surf.blit(kt, (x, y0 + HINT_H // 2 - kt.get_height() // 2))
-            x += kt.get_width() + 4
-            lt = render_text(font, label, theme.color("accent"))
-            surf.blit(lt, (x, y0 + HINT_H // 2 - lt.get_height() // 2))
-            x += lt.get_width() + 14
+            x += panel.key_chip(surf, theme, x, cy, key, label)
 
     _SFX = {"UP": "move", "DOWN": "move", "LEFT": "move", "RIGHT": "move", "L": "move", "R": "move", "A": "select", "B": "back", "MENU": "select", "EXIT": "back"}
 
