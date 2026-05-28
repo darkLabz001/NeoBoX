@@ -44,6 +44,18 @@ class App:
         self.stack: list = []
         self.clock = pygame.time.Clock()
         self._transition = None   # {old_surf, offset, direction, speed}
+        self._section_cache: dict[str, object] = {}   # lazy SectionScreen reuse
+
+    def open_section(self, section: dict):
+        """Push a section screen, reusing it across opens so the second time
+        is instant (no payload rediscovery / no widget rebuild). BigBox feel."""
+        sid = section.get("id", section.get("name", ""))
+        scr = self._section_cache.get(sid)
+        if scr is None:
+            from .screens.section import SectionScreen
+            scr = SectionScreen(self, section)
+            self._section_cache[sid] = scr
+        self.push(scr)
 
     def _init_remote_listener(self):
         import socket

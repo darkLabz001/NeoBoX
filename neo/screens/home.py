@@ -12,7 +12,6 @@ import math
 import pygame
 
 from . import Screen
-from .section import SectionScreen
 from .. import assets, config
 
 # Card sizes (focused / one-off / two-off)
@@ -23,6 +22,34 @@ SIDE_H = 170
 FAR_W = 90
 FAR_H = 130
 CARD_SPACING = 175    # px between adjacent card centers
+
+# Each section has its own accent color — the wash behind the focused card
+# lerps between them as you scroll, so the whole screen breathes the section's
+# color. This is the single most BigBox-alive thing on the home.
+SECTION_COLORS: dict[str, tuple[int, int, int]] = {
+    "recon":     (255, 92, 171),   # pink/magenta
+    "wifi":      (92, 232, 255),   # cyan
+    "bluetooth": (92, 138, 255),   # blue
+    "network":   (92, 255, 192),   # green-cyan
+    "web":       (255, 157, 92),   # orange
+    "passwords": (255, 215, 92),   # gold
+    "social":    (177, 92, 255),   # purple
+    "games":     (255, 92, 110),   # red-orange
+    "system":    (160, 168, 200),  # cool silver
+    "media":     (255, 124, 92),   # warm coral
+    "settings":  (255, 92, 171),   # default pink (matches theme accent)
+}
+
+
+def _section_color(sec: dict) -> tuple[int, int, int]:
+    return SECTION_COLORS.get(sec.get("id", ""), (255, 92, 171))
+
+
+def _lerp_color(a: tuple, b: tuple, t: float) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, t))
+    return (int(a[0] + (b[0] - a[0]) * t),
+            int(a[1] + (b[1] - a[1]) * t),
+            int(a[2] + (b[2] - a[2]) * t))
 
 
 class HomeScreen(Screen):
@@ -58,7 +85,7 @@ class HomeScreen(Screen):
             self.index = self.n - 1
             self.target = float(self.index)
         elif action == "A":
-            self.app.push(SectionScreen(self.app, self.sections[self.index]))
+            self.app.open_section(self.sections[self.index])
 
     # --- animation ------------------------------------------------------
     def update(self, dt: float):
@@ -74,7 +101,7 @@ class HomeScreen(Screen):
         if abs(d) < 0.003:
             self.scroll = self.target
         else:
-            self.scroll += d * min(1.0, dt * 16)
+            self.scroll += d * min(1.0, dt * 22)   # snappier glide
 
     def is_animating(self):
         return True   # ambient drift + breathing run constantly
@@ -90,16 +117,21 @@ class HomeScreen(Screen):
     def _draw_background(self, surf, theme):
         # base
         surf.fill(theme.color("bg"))
-        # big breathing accent glow behind the focused card
+        # The wash blends between the section colors of the two cards we're
+        # between, so the whole screen color-shifts as you wheel.
+        i_lo = int(self.scroll) % self.n
+        i_hi = (i_lo + 1) % self.n
+        t = self.scroll - int(self.scroll)
+        c = _lerp_color(_section_color(self.sections[i_lo]),
+                        _section_color(self.sections[i_hi]), t)
         cx = config.SCREEN_W // 2
         cy = config.SCREEN_H // 2 - 14
-        accent = theme.color("accent")
         breath = 0.85 + 0.15 * math.sin(self._t * 0.55)
-        for radius, alpha in ((230, 22), (170, 32), (110, 42), (60, 60)):
+        for radius, alpha in ((230, 22), (170, 32), (110, 44), (60, 64)):
             r = int(radius * breath)
             a = int(alpha * breath)
             g = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-            pygame.draw.circle(g, (accent.r, accent.g, accent.b, a), (r, r), r)
+            pygame.draw.circle(g, (c[0], c[1], c[2], a), (r, r), r)
             surf.blit(g, (cx - r, cy - r))
 
     def _draw_wheel(self, surf, theme):
@@ -134,12 +166,14 @@ class HomeScreen(Screen):
             alpha = int(170 + (60 - 170) * t)
         focus = absd < 0.45
         rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
-        accent = theme.color("accent")
+        # each card's own color (border + focused title) — the focused one's
+        # color also drives the background wash, tying it all together.
+        c = _section_color(section)
 
         # card panel
         card = pygame.Surface((w, h), pygame.SRCALPHA)
         card.fill((18, 14, 30, int(alpha * 0.92)))
-        pygame.draw.rect(card, (accent.r, accent.g, accent.b, alpha),
+        pygame.draw.rect(card, (c[0], c[1], c[2], alpha),
                          card.get_rect(), width=2 if focus else 1, border_radius=14)
         surf.blit(card, rect.topleft)
 
@@ -162,7 +196,7 @@ class HomeScreen(Screen):
         # title under the icon (focused card only — keeps side cards clean)
         if focus:
             font = theme.font("ui", bold=True)
-            t = font.render(section["name"].upper(), True, theme.color("accent"))
+            t = font.render(section["name"].upper(), True, c)
             surf.blit(t, t.get_rect(midbottom=(rect.centerx, rect.bottom - 14)))
 
     def _draw_label(self, surf, theme):
