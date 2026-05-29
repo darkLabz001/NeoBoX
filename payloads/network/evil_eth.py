@@ -26,10 +26,22 @@ def cleanup(dns_proc):
 
 def main():
     print(f"--- Evil Ethernet starting on {IFACE} ---")
-    
+
     # 1. Check if interface exists
     if not os.path.exists(f"/sys/class/net/{IFACE}"):
         print(f"[!] Error: {IFACE} not found.")
+        return
+
+    # 1b. Honest dependency checks — fail fast with a fix instead of crashing
+    #     mid-attack. dnsmasq is on apt; Responder is a third-party tool we
+    #     don't auto-clone (it's a credential capturer; user opts in).
+    if subprocess.run(["which", "dnsmasq"], capture_output=True).returncode != 0:
+        print("[!] dnsmasq not installed.")
+        print("    Fix:  sudo apt install -y dnsmasq")
+        return
+    if not os.path.isdir("/opt/responder"):
+        print("[!] Responder not found at /opt/responder.")
+        print("    Fix:  sudo git clone https://github.com/lgandx/Responder /opt/responder")
         return
 
     # 2. Setup static IP

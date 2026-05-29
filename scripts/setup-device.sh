@@ -62,6 +62,11 @@ grep -q "video=HDMI" "$CMD" || sed -i '1 s/$/ video=HDMI-A-1:640x480M@60/' "$CMD
 
 echo "[6/6] games: Doom engine, RetroArch, Mednafen, uinput bridge deps"
 apt-get install -y chocolate-doom freedoom retroarch retroarch-assets libretro-core-info mednafen python3-evdev python3-pip python3-flask python3-flask-socketio python3-eventlet python3-psutil python3-netifaces || true
+# NOTE: dnsmasq is NOT installed here on purpose. It auto-starts on apt-install,
+# binds port 53, rewrites /etc/resolv.conf, and can sever SSH on a Pi running
+# over WiFi (sshd's reverse-DNS lookup hangs). Evil Ethernet checks for it at
+# runtime and prints an install hint instead — install only when you actually
+# want to use that payload, and immediately `systemctl disable dnsmasq` after.
 pip3 install -r "$NEO/requirements-web.txt" --break-system-packages || true
 # Ensure firewall allows the web UI port
 command -v ufw >/dev/null && ufw allow 8888/tcp || true
