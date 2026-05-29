@@ -197,44 +197,50 @@ class WardrivingScreen(Screen):
             "--rds=1",
         ]
         try:
-            self._wifi_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            # hcxdumptool 6.x prints lines like:
-            #   "12:34:56:78:9A:BC  -42 11 MyNetwork"
-            # so we just grab any MAC seen and treat it as a new device.
-            bssid_re = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
-            ssid_re = re.compile(r"SSID:\s*(.*?)\]")
-            
-            for line in self._wifi_proc.stdout:
-                if self._stop_event.is_set(): break
-                b_match = bssid_re.search(line)
-                if b_match:
-                    bssid = b_match.group(1).upper()
-                    if bssid not in self._seen_macs:
-                        self._seen_macs.add(bssid)
-                        self.aps_found += 1
-                        ssid = "Unknown"
-                        s_match = ssid_re.search(line)
-                        if s_match: ssid = s_match.group(1)
-                        vendor = self._get_vendor(bssid)
-                        self.log_buffer.append(f"[W] {ssid[:10]} | {vendor}")
-                        if self.linked:
-                            self._log_to_wigle(bssid, ssid, "[WPA]", 0, -70, "WIFI")
-        except: pass
+            # Fire-and-forget. hcxdumptool 6.x prints setup/status text on
+            # stdout, not a stream of "BSSID:" lines we can match — the actual
+            # APs only live in the pcap. _verification_loop polls the pcap
+            # with hcxpcapngtool every few seconds and updates the counters
+            # from there, so we don't need a stdout parser at all.
+            self._wifi_proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as exc:
+            self.log_buffer.append(f"[!] hcxdumptool failed: {exc}")
 
     def _verification_loop(self):
+        # Single source of truth for the on-screen counters: run hcxpcapngtool
+        # against the live pcap every few seconds and pull the summary numbers
+        # out of its text. The pcap is the only place 6.x's actual capture
+        # data shows up — there's no "live AP list" on stdout to grep.
+        ap_re      = re.compile(r"ESSID \(total unique\)\.+:\s*(\d+)")
+        eapol_re   = re.compile(r"EAPOL M1 messages \(total\)\.+:\s*(\d+)")
+        pmkid_re   = re.compile(r"PMKID \(total\)\.+:\s*(\d+)")
+        beacon_re  = re.compile(r"BEACON \(total\)\.+:\s*(\d+)")
         while not self._stop_event.is_set():
-            if self.pcap_path.exists() and self.pcap_path.stat().st_size > 2048:
+            if self.pcap_path.exists() and self.pcap_path.stat().st_size > 256:
                 try:
                     cmd = ["hcxpcapngtool", str(self.pcap_path)]
-                    out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
-                    pmkids = re.search(r"written to PMKID file.*?(\d+)", out)
-                    eapols = re.search(r"written to 22000 file.*?(\d+)", out)
-                    new_total = (int(pmkids.group(1)) if pmkids else 0) + (int(eapols.group(1)) if eapols else 0)
-                    if new_total > self.verified_hashes:
-                        self.log_buffer.append(f"[*] HASH CAPTURED: {new_total}")
-                        self.verified_hashes = new_total
-                except: pass
-            time.sleep(15)
+                    out = subprocess.check_output(
+                        cmd, text=True, stderr=subprocess.STDOUT,
+                        timeout=8)
+                    ap = ap_re.search(out)
+                    eapol = eapol_re.search(out)
+                    pmkid = pmkid_re.search(out)
+                    new_aps = int(ap.group(1)) if ap else 0
+                    new_hashes = ((int(eapol.group(1)) if eapol else 0) +
+                                  (int(pmkid.group(1)) if pmkid else 0))
+                    if new_aps > self.aps_found:
+                        # Log just the delta so the buffer doesn't spam-fill.
+                        delta = new_aps - self.aps_found
+                        self.log_buffer.append(f"[W] +{delta} AP "
+                                               f"({new_aps} total)")
+                        self.aps_found = new_aps
+                    if new_hashes > self.verified_hashes:
+                        self.log_buffer.append(f"[*] HASH CAPTURED: {new_hashes}")
+                        self.verified_hashes = new_hashes
+                except Exception:
+                    pass
+            time.sleep(5)
 
     def _bt_engine(self):
         # Prefer hci1 (USB BT) but fall back to hci0 (Pi's onboard) — unlike WiFi,
