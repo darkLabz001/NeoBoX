@@ -60,6 +60,30 @@ def _read_phone_gps() -> tuple[float, float, float] | None:
     return None
 
 
+def _ip_geo() -> tuple[float, float, str] | None:
+    """Approximate location from the device's public IP. Returns (lat, lon, city)
+    or None. Free + no auth — tries ip-api.com first (fastest), ipapi.co as
+    fallback. Accuracy is city-level (typically 10-50km), good enough to scan
+    Flock cameras nearby without any user setup."""
+    if requests is None:
+        return None
+    try:
+        r = requests.get("http://ip-api.com/json/", timeout=5)
+        d = r.json()
+        if d.get("status") == "success":
+            return (float(d["lat"]), float(d["lon"]), d.get("city", ""))
+    except Exception:
+        pass
+    try:
+        r = requests.get("https://ipapi.co/json/", timeout=5)
+        d = r.json()
+        if "latitude" in d:
+            return (float(d["latitude"]), float(d["longitude"]), d.get("city", ""))
+    except Exception:
+        pass
+    return None
+
+
 def _haversine_m(lat1, lon1, lat2, lon2):
     R = 6371000.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -84,9 +108,13 @@ class FlockScreen(Screen):
         self.loc_idx = 0
         self.location = ("Here", 0.0, 0.0)
         self.gps_acc = 0.0
+        self.source = ""                # 'phone' | 'ip' | 'manual'
         self.results: list[dict] = []
         self.visible: list[dict] = []
-        self.flock_only = True
+        # Default OFF: most cameras in OSM are tagged ALPR without an operator
+        # (the community hasn't gotten to tagging them all as Flock). Showing
+        # only confirmed-Flock would hide most real surveillance.
+        self.flock_only = False
         self.status = "init"               # init | no_gps | querying | ready | error
         self.error = ""
         self._t0 = time.time()
@@ -97,21 +125,35 @@ class FlockScreen(Screen):
 
     def _set_location(self):
         """Resolve self.locations[self.loc_idx] to a usable (name, lat, lon).
-        For the 'Here' entry, hit /api/gps; if not connected, sit in no_gps."""
+        For 'Here' we try: (1) phone GPS — precise; (2) IP geo — city-level,
+        automatic, zero setup; (3) error. So the tool works out-of-box without
+        the user touching anything, and gets more accurate when they connect."""
         entry = self.locations[self.loc_idx]
         if entry[0] == "Here":
             gps = _read_phone_gps()
-            if gps is None:
-                self.location = ("Here", 0.0, 0.0)
-                self.gps_acc = 0.0
-                self.status = "no_gps"
-                self.results = []; self.visible = []; self.list.set_items([])
+            if gps is not None:
+                self.location = ("Here (GPS)", gps[0], gps[1])
+                self.gps_acc = gps[2]
+                self.source = "phone"
+                self._query()
                 return
-            self.location = ("Here", gps[0], gps[1])
-            self.gps_acc = gps[2]
-        else:
-            self.location = entry
+            ip = _ip_geo()
+            if ip is not None:
+                label = f"Near {ip[2]}" if ip[2] else "Here (IP)"
+                self.location = (label, ip[0], ip[1])
+                self.gps_acc = 0.0
+                self.source = "ip"
+                self._query()
+                return
+            self.location = ("Here", 0.0, 0.0)
             self.gps_acc = 0.0
+            self.source = ""
+            self.status = "no_loc"
+            self.results = []; self.visible = []; self.list.set_items([])
+            return
+        self.location = entry
+        self.gps_acc = 0.0
+        self.source = "manual"
         self._query()
 
     def _apply_filter(self):
@@ -197,29 +239,27 @@ class FlockScreen(Screen):
 
         # location header
         y = statusbar.HEIGHT + 8
-        is_here = self.location[0] == "Here"
-        head_label = "@ Here (live GPS)" if is_here else f"@ {self.location[0]}"
-        head = ui.render(head_label, True, accent)
+        head = ui.render(f"@ {self.location[0]}", True, accent)
         surf.blit(head, (12, y))
-        if self.status == "no_gps":
-            sub = small.render("phone-GPS link not connected · X for a city", True, dim)
-        else:
-            extra = f"  ±{self.gps_acc:.0f}m" if (is_here and self.gps_acc) else ""
+        if self.status == "no_loc":
+            sub = small.render("Couldn't determine location · X to pick a city", True, dim)
+        elif self.source:
+            src_label = {"phone": f"phone GPS ±{self.gps_acc:.0f}m",
+                         "ip":    "IP-based ~city-level",
+                         "manual": "manual"}.get(self.source, "")
             sub = small.render(
-                f"{self.location[1]:.4f}, {self.location[2]:.4f}{extra}   ·  20 km radius   ·  OSM",
+                f"{self.location[1]:.4f}, {self.location[2]:.4f}   ·   20 km   ·   src: {src_label}",
                 True, dim)
+        else:
+            sub = small.render("…", True, dim)
         surf.blit(sub, (12, y + 22))
         pygame.draw.line(surf, accent, (12, y + 42), (config.SCREEN_W - 12, y + 42), 1)
 
-        if self.status == "no_gps":
-            t = ui.render("Phone GPS not connected.", True, dim)
-            surf.blit(t, t.get_rect(center=(cx, config.SCREEN_H // 2 - 24)))
-            t2 = small.render("On your phone, open the NeoBoX Mobile Link", True, dim)
-            t3 = small.render("(Settings -> Web UI) and allow Location.", True, dim)
-            surf.blit(t2, t2.get_rect(center=(cx, config.SCREEN_H // 2 + 4)))
-            surf.blit(t3, t3.get_rect(center=(cx, config.SCREEN_H // 2 + 22)))
-            t4 = small.render("Press Y once connected, or X for a city.", True, accent)
-            surf.blit(t4, t4.get_rect(center=(cx, config.SCREEN_H // 2 + 50)))
+        if self.status == "no_loc":
+            t = ui.render("Couldn't determine location.", True, dim)
+            surf.blit(t, t.get_rect(center=(cx, config.SCREEN_H // 2 - 18)))
+            t2 = small.render("Check internet, or press X for a city.", True, dim)
+            surf.blit(t2, t2.get_rect(center=(cx, config.SCREEN_H // 2 + 6)))
             return
         if self.status == "querying":
             dots = "." * (int((time.time() - self._t0) * 2) % 4)
@@ -283,7 +323,7 @@ class FlockScreen(Screen):
     def hints(self):
         if self.status == "querying":
             return [("B", "back")]
-        if self.status == "no_gps":
-            return [("Y", "retry GPS"), ("X", "use a city"), ("B", "back")]
+        if self.status == "no_loc":
+            return [("Y", "retry"), ("X", "use a city"), ("B", "back")]
         loc_label = "next loc" if self.location[0] == "Here" else "next city"
         return [("A", "details"), ("LR", "filter"), ("X", loc_label), ("Y", "refresh"), ("B", "back")]
