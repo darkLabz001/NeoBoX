@@ -22,14 +22,17 @@ def list_results(query):
     """Output search results as JSON for the Neo UI to consume."""
     # Format: title ||| id ||| duration_string ||| thumbnail ||| view_count ||| uploader
     template = "%(title)s|||%(id)s|||%(duration_string)s|||%(thumbnail)s|||%(view_count)d|||%(uploader)s"
-    # Fetch 30 results for a better "infinite" feel
+    # 10 results: enough to fill a page, still completes in ~10-12s on Pi 3B+.
+    # ytsearch30 was the source of the "search hangs" feel (60s+ on this CPU).
     cmd = [
         "yt-dlp",
         "--print", template,
         "--no-playlist",
-        f"ytsearch30:{query}"
+        "--no-warnings",       # silence the "no JS runtime" notice that prints once per result
+        f"ytsearch10:{query}"
     ]
     try:
+        # stderr → DEVNULL so the JS-runtime warning doesn't bleed into our JSON pipe
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
         results = []
         for line in proc.stdout.strip().split("\n"):

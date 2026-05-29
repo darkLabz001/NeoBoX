@@ -107,10 +107,20 @@ class WardrivingScreen(Screen):
         threading.Thread(target=self._verification_loop, daemon=True).start()
 
     def _wifi_engine(self):
+        # Honest guard: monitor mode needs an external adapter (Alfa wlan1).
+        # The Pi's built-in wlan0 can't do it without killing the OS network,
+        # so we refuse to fall back — say what's wrong instead of failing silently.
+        if not os.path.exists(f"/sys/class/net/{self.wifi_iface}"):
+            self.log_buffer.append(f"[!] {self.wifi_iface} not found")
+            self.log_buffer.append("[!] plug in Alfa AWUS036ACS")
+            self.log_buffer.append("[!] WiFi scan disabled")
+            return
+
         subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "down"], capture_output=True)
-        subprocess.run(["sudo", "iw", "dev", self.wifi_iface, "set", "type", "monitor"], capture_output=True)
+        # /usr/sbin/iw might not be on the user PATH; full path keeps sudo happy.
+        subprocess.run(["sudo", "/usr/sbin/iw", "dev", self.wifi_iface, "set", "type", "monitor"], capture_output=True)
         subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "up"], capture_output=True)
-        
+
         self.log_buffer.append(f"[*] {self.wifi_iface}: Monitor Active")
 
         cmd = [
@@ -157,6 +167,17 @@ class WardrivingScreen(Screen):
             time.sleep(15)
 
     def _bt_engine(self):
+        # Prefer hci1 (USB BT) but fall back to hci0 (Pi's onboard) — unlike WiFi,
+        # using the onboard BT for scanning doesn't break the rest of the device.
+        if not os.path.exists(f"/sys/class/bluetooth/{self.bt_iface}"):
+            if os.path.exists("/sys/class/bluetooth/hci0"):
+                self.bt_iface = "hci0"
+                self.log_buffer.append("[*] BT: using onboard hci0")
+            else:
+                self.log_buffer.append("[!] no BT controller")
+                self.log_buffer.append("[!] BT scan disabled")
+                return
+
         subprocess.run(["sudo", "bluetoothctl", "power", "on"], capture_output=True)
         while not self._stop_event.is_set():
             try:
