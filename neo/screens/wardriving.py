@@ -38,8 +38,11 @@ class WardrivingScreen(Screen):
         self.signal_history = deque([0] * 60, maxlen=60) # 60 seconds of history
         self._last_graph_update = 0
         
-        # Adapters
-        self.wifi_iface = "wlan1"
+        # Adapters: pick the monitor-capable wifi iface at runtime instead of
+        # hard-coding wlan1. The Pi assigns wlanN by boot order, and the Pi's
+        # onboard radio (which only supports IBSS+managed) sometimes wins the
+        # "wlan1" slot, leaving the Alfa as wlan0.
+        self.wifi_iface = self._pick_monitor_iface()
         self.bt_iface = "hci1"
         
         # QR Code for phone link
@@ -72,6 +75,46 @@ class WardrivingScreen(Screen):
     def _get_vendor(self, mac: str) -> str:
         prefix = mac.upper()[:8]
         return self.oui_db.get(prefix, "Unknown")
+
+    def _pick_monitor_iface(self) -> str | None:
+        """Find a wlan iface whose phy actually supports monitor mode.
+        Returns the iface name (e.g. 'wlan0') or None if no adapter qualifies.
+        Querying `iw phy <phy> info` and looking for 'monitor' in the
+        Supported interface modes block is the only reliable test — the OS
+        does not expose this via /sys/class/net."""
+        try:
+            out = subprocess.check_output(["/usr/sbin/iw", "dev"], text=True,
+                                          stderr=subprocess.DEVNULL)
+        except Exception:
+            return None
+        # Parse `iw dev` blocks of the form:
+        #   phy#0
+        #     Interface wlan1
+        #       ...
+        cur_phy = None
+        ifaces = []  # [(phy_id, iface_name)]
+        for line in out.splitlines():
+            line = line.rstrip()
+            if line.startswith("phy#"):
+                cur_phy = line.strip()[4:]
+            elif line.strip().startswith("Interface "):
+                ifaces.append((cur_phy, line.strip().split()[1]))
+        for phy, name in ifaces:
+            try:
+                pinfo = subprocess.check_output(
+                    ["/usr/sbin/iw", "phy", f"phy{phy}", "info"],
+                    text=True, stderr=subprocess.DEVNULL)
+            except Exception:
+                continue
+            # The "Supported interface modes:" block has one mode per line.
+            # We just look for 'monitor' in the section after that header.
+            if "Supported interface modes" in pinfo:
+                tail = pinfo.split("Supported interface modes", 1)[1]
+                # cut off at the next blank header to keep the test tight
+                tail = tail.split("\n\n", 1)[0]
+                if "* monitor" in tail:
+                    return name
+        return None
 
     def _init_log(self):
         try:
@@ -107,32 +150,40 @@ class WardrivingScreen(Screen):
         threading.Thread(target=self._verification_loop, daemon=True).start()
 
     def _wifi_engine(self):
-        # Honest guard: monitor mode needs an external adapter (Alfa wlan1).
-        # The Pi's built-in wlan0 can't do it without killing the OS network,
-        # so we refuse to fall back — say what's wrong instead of failing silently.
-        if not os.path.exists(f"/sys/class/net/{self.wifi_iface}"):
-            self.log_buffer.append(f"[!] {self.wifi_iface} not found")
+        # Honest guard: monitor mode needs a capable adapter (Alfa AWUS036ACS).
+        # _pick_monitor_iface scans every phy's supported modes — if nothing
+        # qualifies, we say so instead of pretending monitor is active.
+        if not self.wifi_iface:
+            self.log_buffer.append("[!] no monitor-capable iface")
             self.log_buffer.append("[!] plug in Alfa AWUS036ACS")
             self.log_buffer.append("[!] WiFi scan disabled")
             return
 
-        subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "down"], capture_output=True)
-        # /usr/sbin/iw might not be on the user PATH; full path keeps sudo happy.
-        subprocess.run(["sudo", "/usr/sbin/iw", "dev", self.wifi_iface, "set", "type", "monitor"], capture_output=True)
-        subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "up"], capture_output=True)
+        # NOTE: do NOT set monitor mode via `iw` first. hcxdumptool 6.x
+        # explicitly tells you not to ("Do not set monitor mode by third party
+        # tools or third party scripts!") — it sets its own. Pre-setting can
+        # leave the iface stuck in a bad state if hcxdumptool then exits.
 
-        self.log_buffer.append(f"[*] {self.wifi_iface}: Monitor Active")
+        self.log_buffer.append(f"[*] using {self.wifi_iface} (monitor)")
 
+        # hcxdumptool 6.x flags. `--enable_status=1` and `--active_beacon`
+        # were renamed/removed between 5.x and 6.x:
+        #   -F           : enable active scanning (broadcast probe-reqs)
+        #   --rds=1      : real-time display, sorted by last status
         cmd = [
-            "sudo", "hcxdumptool", "-i", self.wifi_iface,
-            "-o", str(self.pcap_path),
-            "--enable_status=1",
-            "--active_beacon"
+            "sudo", "hcxdumptool",
+            "-i", self.wifi_iface,
+            "-w", str(self.pcap_path),
+            "-F",
+            "--rds=1",
         ]
         try:
             self._wifi_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            # hcxdumptool 6.x prints lines like:
+            #   "12:34:56:78:9A:BC  -42 11 MyNetwork"
+            # so we just grab any MAC seen and treat it as a new device.
+            bssid_re = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
             ssid_re = re.compile(r"SSID:\s*(.*?)\]")
-            bssid_re = re.compile(r"BSSID:\s*([0-9a-fA-F:]{17})")
             
             for line in self._wifi_proc.stdout:
                 if self._stop_event.is_set(): break
