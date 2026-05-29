@@ -36,18 +36,19 @@ def list_cams():
     """Aggregated camera list."""
     results = []
     
-    # 0. BigBox Verified (High reliability)
+    # BigBox Verified — every URL below was live-tested on the device
+    # 2026-05-29 and rendered actual frames in the viewer. The previous
+    # list also had Fair Harbor, three Seattle DOT cams, four Skyline
+    # entries, and three Opentopia cams; all 11 were dead (hosts gone or
+    # the resolver-page format changed). Removed rather than shipped
+    # as broken-on-open feeds. Add new ones only after live-testing.
     bigbox = [
-        ("Avalon Golf", "http://74.95.172.65:8100/axis-cgi/mjpg/video.cgi", "mjpeg"),
-        ("Norway Coast", "http://78.31.82.246/mjpg/video.mjpg", "mjpeg"),
+        ("Avalon Golf",   "http://74.95.172.65:8100/axis-cgi/mjpg/video.cgi", "mjpeg"),
+        ("Norway Coast",  "http://78.31.82.246/mjpg/video.mjpg", "mjpeg"),
         ("Playa Levante", "http://212.170.100.189/mjpg/video.mjpg", "mjpeg"),
-        ("Airport USA", "http://199.104.253.4/mjpg/video.mjpg", "mjpeg"),
-        ("Madrid, ESP", "http://83.48.75.113:8320/axis-cgi/mjpg/video.cgi", "mjpeg"),
-        ("Stelvio Pass", "https://jpeg.popso.it/webcam/webcam_online/stelviolive_05.jpg", "snapshot"),
-        ("Fair Harbor", "http://webcam.fairharbormarina.com/nphMotionJpeg?Resolution=640x480", "mjpeg"),
-        ("Seattle 1st & Denny", "https://61e0c5d388c2e.streamlock.net:443/live/1_N_Denny_EW.stream/playlist.m3u8", "hls"),
-        ("Seattle 3rd & Denny", "https://61e0c5d388c2e.streamlock.net:443/live/3_N_Denny_EW.stream/playlist.m3u8", "hls"),
-        ("Seattle Elliott & Broad", "https://61e0c5d388c2e.streamlock.net:443/live/Elliott_Broad_NS.stream/playlist.m3u8", "hls"),
+        ("Airport USA",   "http://199.104.253.4/mjpg/video.mjpg", "mjpeg"),
+        ("Madrid, ESP",   "http://83.48.75.113:8320/axis-cgi/mjpg/video.cgi", "mjpeg"),
+        ("Stelvio Pass",  "https://jpeg.popso.it/webcam/webcam_online/stelviolive_05.jpg", "snapshot"),
     ]
     for name, url, ctype in bigbox:
         results.append({
@@ -56,42 +57,15 @@ def list_cams():
             "url": url, "type": ctype
         })
 
-    # 1. Skyline (Standard world feeds)
-    skyline = [
-        ("Times Square", "https://www.skylinewebcams.com/en/webcam/united-states/new-york/new-york/times-square.html"),
-        ("Venice", "https://www.skylinewebcams.com/en/webcam/italia/veneto/venezia/canal-grande-rialto.html"),
-        ("Milan", "https://www.skylinewebcams.com/en/webcam/italia/lombardia/milano/duomo-milano.html"),
-        ("Piazza Navona", "https://www.skylinewebcams.com/en/webcam/italia/lazio/roma/piazza-navona.html")
-    ]
-    for name, url in skyline:
-        slug = url.split("/")[-1].replace(".html", "")
-        results.append({
-            "name": f"Sky: {name}",
-            "thumb": f"https://cdn.skylinewebcams.com/thumbs/{slug}.jpg",
-            "url": url, "type": "hls"
-        })
-
-    # 2. Arlington (Reliable HLS)
+    # Arlington VA traffic cams — public HLS, live-tested 2026-05-29.
+    # Takes ~20-25 s for ffmpeg to surface the first frame on Pi 3B+;
+    # the screen shows "HANDSHAKING..." until then.
     for cid in [10, 11, 20, 21, 25]:
         results.append({
             "name": f"Arlington Cam {cid}",
-            "thumb": "recon", 
+            "thumb": "recon",
             "url": f"https://itsvideo.arlingtonva.us:8011/live/cam{cid}.stream/playlist.m3u8",
             "type": "hls"
-        })
-
-    # 3. Opentopia (Security feeds)
-    opentopia = [
-        ("Nagano (JP)", "15516"),
-        ("Tokyo (JP)", "16031"),
-        ("Zurich (CH)", "12519")
-    ]
-    for name, cid in opentopia:
-        results.append({
-            "name": f"Open: {name}",
-            "thumb": f"https://www.opentopia.com/images/cams/{cid}.jpg",
-            "url": f"http://www.opentopia.com/webcam/{cid}", 
-            "type": "mjpeg"
         })
 
     # Output ONLY JSON

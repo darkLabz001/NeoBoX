@@ -41,7 +41,25 @@ class CctvViewerScreen(Screen):
         
         self._stop_thread = False
         self._fetch_thread = None
+        # Subprocess handle for the HLS path (ffmpeg). proc.stdout.read() is
+        # blocking, so _stop_thread alone can't unblock the loop — when we
+        # want to switch cams or exit we kill this proc directly.
+        self._ffmpeg_proc: subprocess.Popen | None = None
         self._start_stream_thread()
+
+    def _kill_active_proc(self):
+        """Terminate any ffmpeg we spawned so its blocking stdout.read()
+        returns and the fetch thread can exit. Without this, dead HLS URLs
+        leak ffmpeg processes that keep running after the user backs out."""
+        proc = self._ffmpeg_proc
+        if proc and proc.poll() is None:
+            try: proc.terminate()
+            except Exception: pass
+            try: proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                try: proc.kill()
+                except Exception: pass
+        self._ffmpeg_proc = None
 
     def _start_stream_thread(self):
         self._stop_thread = False
@@ -94,6 +112,8 @@ class CctvViewerScreen(Screen):
         except Exception as e:
             self.error_msg = f"ffmpeg fail: {e}"
             return
+        # Expose to on_action so B / LEFT / RIGHT can break the blocking read
+        self._ffmpeg_proc = proc
 
         self.loading = False
         buf = bytearray()
@@ -122,7 +142,10 @@ class CctvViewerScreen(Screen):
                     except: pass
                 if len(buf) > 1024 * 1024: buf = bytearray()
         finally:
-            proc.terminate()
+            # _kill_active_proc handles terminate-then-kill cleanly. If the
+            # loop exited because someone else already killed proc, this is
+            # a no-op.
+            self._kill_active_proc()
 
     def _fetch_loop(self) -> None:
         url = self.url
@@ -193,15 +216,18 @@ class CctvViewerScreen(Screen):
     def on_action(self, action: str):
         if action == "B":
             self._stop_thread = True
+            self._kill_active_proc()
             self.app.pop()
         elif action == "UP":
             self.zoom = 2 if self.zoom == 1 else (4 if self.zoom == 2 else 1)
         elif action == "LEFT":
             self._stop_thread = True
+            self._kill_active_proc()
             self.index = (self.index - 1) % len(self.cameras)
             self._start_stream_thread()
         elif action == "RIGHT":
             self._stop_thread = True
+            self._kill_active_proc()
             self.index = (self.index + 1) % len(self.cameras)
             self._start_stream_thread()
 
