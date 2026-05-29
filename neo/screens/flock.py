@@ -52,15 +52,24 @@ class FlockScreen(Screen):
         self.meta = meta or {}
         self.metro_idx = 0
         self.location = KNOWN_METROS[self.metro_idx]
-        self.results: list[dict] = []
-        self.status = "querying"          # querying | ready | error
+        self.results: list[dict] = []          # everything Overpass returned
+        self.visible: list[dict] = []           # post-filter
+        self.flock_only = True                  # default to confirmed Flock only
+        self.status = "querying"                # querying | ready | error
         self.error = ""
         self._t0 = time.time()
-        # list area below the location header, above the hint bar
         top = statusbar.HEIGHT + 58
         bot = config.SCREEN_H - 28
         self.list = ListView(pygame.Rect(10, top, config.SCREEN_W - 20, bot - top), row_h=42)
         self._query()
+
+    def _apply_filter(self):
+        if self.flock_only:
+            self.visible = [d for d in self.results
+                            if "flock" in (d.get("operator") or "").lower()]
+        else:
+            self.visible = list(self.results)
+        self.list.set_items(self.visible)
 
     # --- query ----------------------------------------------------------
     def _query(self):
@@ -85,7 +94,7 @@ class FlockScreen(Screen):
                 d["_dist"] = _haversine_m(lat, lon, d["lat"], d["lon"])
             data.sort(key=lambda d: d["_dist"])
             self.results = data
-            self.list.set_items(data)
+            self._apply_filter()
             self.status = "ready"
         except Exception as exc:
             self.error = str(exc)[:80]
@@ -105,9 +114,16 @@ class FlockScreen(Screen):
         if action == "Y":   # re-query same location
             self._query()
             return
+        if action in ("L", "R"):              # toggle Flock-only vs all ALPRs
+            self.flock_only = not self.flock_only
+            self._apply_filter()
+            return
         r = self.list.on_action(action)
         if r == "back" or action in ("EXIT", "MENU"):
             self.app.pop()
+        elif r == "select" and self.list.selected():
+            from .flock_detail import FlockDetailScreen
+            self.app.push(FlockDetailScreen(self.app, self.list.selected(), self.location))
 
     # --- animation ------------------------------------------------------
     def update(self, dt):
@@ -157,9 +173,20 @@ class FlockScreen(Screen):
             t2 = small.render("Press X for another city.", True, dim)
             surf.blit(t2, t2.get_rect(center=(cx, config.SCREEN_H // 2 + 22)))
             return
+        if not self.visible:
+            t = small.render("No confirmed-Flock cameras in this area.", True, dim)
+            surf.blit(t, t.get_rect(center=(cx, config.SCREEN_H // 2 - 12)))
+            t2 = small.render("Press LR to show all OSM-tagged ALPRs.", True, dim)
+            surf.blit(t2, t2.get_rect(center=(cx, config.SCREEN_H // 2 + 10)))
+            return
 
-        # results count chip
-        cnt = small.render(f"{len(self.results)} cameras", True, accent)
+        # filter + counts chip: "12 FLOCK · 80 ALPR"
+        n_flock = sum(1 for d in self.results
+                      if "flock" in (d.get("operator") or "").lower())
+        n_total = len(self.results)
+        mode = "FLOCK" if self.flock_only else "ALL ALPR"
+        cnt_text = f"{mode}: {len(self.visible)}   ·   {n_flock} flock / {n_total} alpr"
+        cnt = small.render(cnt_text, True, accent)
         surf.blit(cnt, (config.SCREEN_W - cnt.get_width() - 14, y + 24))
 
         # list
@@ -191,4 +218,4 @@ class FlockScreen(Screen):
     def hints(self):
         if self.status == "querying":
             return [("B", "back")]
-        return [("A", "details"), ("X", "city"), ("Y", "refresh"), ("B", "back")]
+        return [("A", "details"), ("LR", "filter"), ("X", "city"), ("Y", "refresh"), ("B", "back")]
