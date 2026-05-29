@@ -53,12 +53,30 @@ class FlockDetailScreen(Screen):
     def _fetch_tile(self):
         try:
             x, y = _tile_xy(self.item["lat"], self.item["lon"], 17)
-            url = f"https://tile.openstreetmap.org/17/{x}/{y}.png"
-            req = urllib.request.Request(url, headers={"User-Agent": "NeoBoX-Recon/0.1"})
-            data = urllib.request.urlopen(req, timeout=10).read()
+            # Disk cache so repeated opens are instant and we respect OSM
+            # tile-usage policy ("Heavy use will be blocked / cache aggressively").
+            cache_dir = config.CACHE_DIR / "osm_tiles"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache = cache_dir / f"17_{x}_{y}.png"
+            if cache.exists() and cache.stat().st_size > 0:
+                data = cache.read_bytes()
+            else:
+                url = f"https://tile.openstreetmap.org/17/{x}/{y}.png"
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": "NeoBoX/0.1 (+https://github.com/darkLabz001/NeoBoX)",
+                })
+                data = urllib.request.urlopen(req, timeout=10).read()
+                cache.write_bytes(data)
             img = pygame.image.load(io.BytesIO(data))
+            # OSM tiles come back as 8-bit indexed PNGs; pygame.smoothscale
+            # only accepts 24/32-bit surfaces, so promote first.
+            if img.get_bitsize() < 24:
+                promoted = pygame.Surface(img.get_size())
+                promoted.blit(img, (0, 0))
+                img = promoted
             self.tile = pygame.transform.smoothscale(img, (190, 190))
-        except Exception:
+        except Exception as exc:
+            print(f"[flock] tile fetch failed: {exc}")
             self._tile_err = True
 
     def on_action(self, action: str):
