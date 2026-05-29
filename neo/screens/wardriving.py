@@ -76,6 +76,17 @@ class WardrivingScreen(Screen):
         prefix = mac.upper()[:8]
         return self.oui_db.get(prefix, "Unknown")
 
+    def _iface_is_default_route(self, iface: str) -> bool:
+        """True if `iface` is currently carrying the default route — i.e.
+        flipping it to monitor will sever the device's internet/SSH."""
+        try:
+            out = subprocess.check_output(
+                ["ip", "route", "show", "default"],
+                text=True, stderr=subprocess.DEVNULL)
+            return f" dev {iface} " in (" " + out + " ")
+        except Exception:
+            return False
+
     def _pick_monitor_iface(self) -> str | None:
         """Find a wlan iface whose phy actually supports monitor mode.
         Returns the iface name (e.g. 'wlan0') or None if no adapter qualifies.
@@ -158,6 +169,14 @@ class WardrivingScreen(Screen):
             self.log_buffer.append("[!] plug in Alfa AWUS036ACS")
             self.log_buffer.append("[!] WiFi scan disabled")
             return
+
+        # Warn if we're about to flip the iface that's carrying the default
+        # route. Monitor mode disconnects it from any AP — internet, SSH and
+        # the web UI all drop until B is pressed and managed mode is restored.
+        self._iface_was_default_route = self._iface_is_default_route(self.wifi_iface)
+        if self._iface_was_default_route:
+            self.log_buffer.append(f"[!] {self.wifi_iface} is your internet")
+            self.log_buffer.append("[!] WiFi/SSH will drop until exit")
 
         # NOTE: do NOT set monitor mode via `iw` first. hcxdumptool 6.x
         # explicitly tells you not to ("Do not set monitor mode by third party
@@ -275,6 +294,21 @@ class WardrivingScreen(Screen):
         if self._wifi_proc:
             self._wifi_proc.terminate()
         subprocess.run(["sudo", "pkill", "-f", "hcxdumptool"], capture_output=True)
+        # Restore the iface: bring it back to managed mode and let
+        # NetworkManager reconnect. Skip the restore if we never actually
+        # opened it (no iface was monitor-capable in the first place).
+        if self.wifi_iface:
+            subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "down"],
+                           capture_output=True)
+            subprocess.run(["sudo", "/usr/sbin/iw", "dev", self.wifi_iface,
+                            "set", "type", "managed"], capture_output=True)
+            subprocess.run(["sudo", "ip", "link", "set", self.wifi_iface, "up"],
+                           capture_output=True)
+            # Only nudge NM if we just nuked the default route — otherwise
+            # we'd needlessly bounce a working connection.
+            if getattr(self, "_iface_was_default_route", False):
+                subprocess.run(["sudo", "nmcli", "device", "connect",
+                                self.wifi_iface], capture_output=True)
 
     def on_action(self, action: str):
         if action == "B":
